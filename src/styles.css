@@ -1,0 +1,190 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * TudoZap design system — dark graphite base, WhatsApp-inspired green accent.
+ * All colors are oklch semantic tokens. Never hardcode colors in components.
+ */
+
+@theme inline {
+  --font-sans: "Geist", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --radius-sm: calc(var(--radius) - 6px);
+  --radius-md: calc(var(--radius) - 4px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-glow: var(--primary-glow);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  --radius: 1rem;
+
+  --background: oklch(0.16 0.008 160);
+  --foreground: oklch(0.97 0.005 150);
+
+  --surface: oklch(0.2 0.008 160);
+  --surface-2: oklch(0.235 0.009 160);
+
+  --card: oklch(0.205 0.009 162);
+  --card-foreground: oklch(0.97 0.005 150);
+  --popover: oklch(0.205 0.009 162);
+  --popover-foreground: oklch(0.97 0.005 150);
+
+  --primary: oklch(0.78 0.17 152);
+  --primary-foreground: oklch(0.17 0.03 155);
+  --primary-glow: oklch(0.86 0.19 150);
+
+  --secondary: oklch(0.26 0.01 160);
+  --secondary-foreground: oklch(0.95 0.005 150);
+
+  --muted: oklch(0.25 0.008 160);
+  --muted-foreground: oklch(0.7 0.012 160);
+
+  --accent: oklch(0.28 0.02 158);
+  --accent-foreground: oklch(0.96 0.005 150);
+
+  --destructive: oklch(0.62 0.2 25);
+  --destructive-foreground: oklch(0.98 0.005 150);
+  --warning: oklch(0.79 0.15 78);
+  --warning-foreground: oklch(0.2 0.02 78);
+  --success: oklch(0.78 0.17 152);
+  --success-foreground: oklch(0.17 0.03 155);
+
+  --border: oklch(1 0 0 / 9%);
+  --border-strong: oklch(1 0 0 / 16%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.78 0.17 152 / 55%);
+
+  --chart-1: oklch(0.78 0.17 152);
+  --chart-2: oklch(0.62 0.11 190);
+  --chart-3: oklch(0.86 0.19 150);
+  --chart-4: oklch(0.55 0.06 165);
+  --chart-5: oklch(0.72 0.09 130);
+
+  --sidebar: oklch(0.185 0.009 162);
+  --sidebar-foreground: oklch(0.93 0.005 150);
+  --sidebar-primary: oklch(0.78 0.17 152);
+  --sidebar-primary-foreground: oklch(0.17 0.03 155);
+  --sidebar-accent: oklch(0.25 0.012 160);
+  --sidebar-accent-foreground: oklch(0.97 0.005 150);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.78 0.17 152 / 45%);
+
+  --gradient-hero: radial-gradient(
+      120% 80% at 50% -10%,
+      color-mix(in oklab, var(--primary) 18%, transparent),
+      transparent 60%
+    ),
+    linear-gradient(180deg, oklch(0.19 0.012 160), var(--background) 55%);
+  --gradient-panel: linear-gradient(
+    150deg,
+    color-mix(in oklab, var(--surface-2) 92%, var(--primary) 8%),
+    var(--surface)
+  );
+  --gradient-primary: linear-gradient(135deg, var(--primary), var(--primary-glow));
+  --shadow-panel: 0 30px 80px -30px oklch(0 0 0 / 80%);
+  --shadow-glow: 0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent),
+    0 20px 60px -25px color-mix(in oklab, var(--primary) 45%, transparent);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 35%, transparent);
+  }
+}
+
+@utility glass-card {
+  background: color-mix(in oklab, var(--surface) 70%, transparent);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-panel);
+}
+
+@utility panel-gradient {
+  background: var(--gradient-panel);
+}
+
+@utility hero-gradient {
+  background: var(--gradient-hero);
+}
+
+@utility glow-ring {
+  box-shadow: var(--shadow-glow);
+}
+
+@utility text-gradient {
+  background: linear-gradient(
+    100deg,
+    var(--color-foreground) 30%,
+    color-mix(in oklab, var(--primary) 90%, white)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@utility grid-lines {
+  background-image: linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(70% 60% at 50% 0%, black, transparent);
+}
