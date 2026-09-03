@@ -14,10 +14,14 @@ import { Route as AppRouteImport } from './routes/app'
 import { Route as CadastroRouteImport } from './routes/cadastro'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppIndexRouteImport } from './routes/app.index'
+import { Route as AppAgendamentosRouteImport } from './routes/app.agendamentos'
 import { Route as AppAutomacoesRouteImport } from './routes/app.automacoes'
+import { Route as AppComprarWhatsappRouteImport } from './routes/app.comprar-whatsapp'
 import { Route as AppContatosRouteImport } from './routes/app.contatos'
+import { Route as AppCrmRouteImport } from './routes/app.crm'
 import { Route as AppGruposRouteImport } from './routes/app.grupos'
 import { Route as AppInstanciasRouteImport } from './routes/app.instancias'
+import { Route as AppMensagensRouteImport } from './routes/app.mensagens'
 import { Route as AppReacoesRouteImport } from './routes/app.reacoes'
 import { Route as ApiCreditsPixRouteImport } from './routes/api.credits.pix'
 import { Route as ApiCreditsStatusRouteImport } from './routes/api.credits.status'
@@ -48,14 +52,29 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAgendamentosRoute = AppAgendamentosRouteImport.update({
+  id: '/agendamentos',
+  path: '/agendamentos',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppAutomacoesRoute = AppAutomacoesRouteImport.update({
   id: '/automacoes',
   path: '/automacoes',
   getParentRoute: () => AppRoute,
 } as any)
+const AppComprarWhatsappRoute = AppComprarWhatsappRouteImport.update({
+  id: '/comprar-whatsapp',
+  path: '/comprar-whatsapp',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppContatosRoute = AppContatosRouteImport.update({
   id: '/contatos',
   path: '/contatos',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCrmRoute = AppCrmRouteImport.update({
+  id: '/crm',
+  path: '/crm',
   getParentRoute: () => AppRoute,
 } as any)
 const AppGruposRoute = AppGruposRouteImport.update({
@@ -66,6 +85,11 @@ const AppGruposRoute = AppGruposRouteImport.update({
 const AppInstanciasRoute = AppInstanciasRouteImport.update({
   id: '/instancias',
   path: '/instancias',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppMensagensRoute = AppMensagensRouteImport.update({
+  id: '/mensagens',
+  path: '/mensagens',
   getParentRoute: () => AppRoute,
 } as any)
 const AppReacoesRoute = AppReacoesRouteImport.update({
@@ -94,10 +118,14 @@ export interface FileRoutesByFullPath {
   '/app': typeof AppRouteWithChildren
   '/cadastro': typeof CadastroRoute
   '/login': typeof LoginRoute
+  '/app/agendamentos': typeof AppAgendamentosRoute
   '/app/automacoes': typeof AppAutomacoesRoute
+  '/app/comprar-whatsapp': typeof AppComprarWhatsappRoute
   '/app/contatos': typeof AppContatosRoute
+  '/app/crm': typeof AppCrmRoute
   '/app/grupos': typeof AppGruposRoute
   '/app/instancias': typeof AppInstanciasRoute
+  '/app/mensagens': typeof AppMensagensRoute
   '/app/reacoes': typeof AppReacoesRoute
   '/app/': typeof AppIndexRoute
   '/api/credits/pix': typeof ApiCreditsPixRoute
@@ -108,10 +136,14 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/cadastro': typeof CadastroRoute
   '/login': typeof LoginRoute
+  '/app/agendamentos': typeof AppAgendamentosRoute
   '/app/automacoes': typeof AppAutomacoesRoute
+  '/app/comprar-whatsapp': typeof AppComprarWhatsappRoute
   '/app/contatos': typeof AppContatosRoute
+  '/app/crm': typeof AppCrmRoute
   '/app/grupos': typeof AppGruposRoute
   '/app/instancias': typeof AppInstanciasRoute
+  '/app/mensagens': typeof AppMensagensRoute
   '/app/reacoes': typeof AppReacoesRoute
   '/app': typeof AppIndexRoute
   '/api/credits/pix': typeof ApiCreditsPixRoute
@@ -124,10 +156,14 @@ export interface FileRoutesById {
   '/app': typeof AppRouteWithChildren
   '/cadastro': typeof CadastroRoute
   '/login': typeof LoginRoute
+  '/app/agendamentos': typeof AppAgendamentosRoute
   '/app/automacoes': typeof AppAutomacoesRoute
+  '/app/comprar-whatsapp': typeof AppComprarWhatsappRoute
   '/app/contatos': typeof AppContatosRoute
+  '/app/crm': typeof AppCrmRoute
   '/app/grupos': typeof AppGruposRoute
   '/app/instancias': typeof AppInstanciasRoute
+  '/app/mensagens': typeof AppMensagensRoute
   '/app/reacoes': typeof AppReacoesRoute
   '/app/': typeof AppIndexRoute
   '/api/credits/pix': typeof ApiCreditsPixRoute
@@ -141,10 +177,14 @@ export interface FileRouteTypes {
     | '/app'
     | '/cadastro'
     | '/login'
+    | '/app/agendamentos'
     | '/app/automacoes'
+    | '/app/comprar-whatsapp'
     | '/app/contatos'
+    | '/app/crm'
     | '/app/grupos'
     | '/app/instancias'
+    | '/app/mensagens'
     | '/app/reacoes'
     | '/app/'
     | '/api/credits/pix'
@@ -155,10 +195,14 @@ export interface FileRouteTypes {
     | '/'
     | '/cadastro'
     | '/login'
+    | '/app/agendamentos'
     | '/app/automacoes'
+    | '/app/comprar-whatsapp'
     | '/app/contatos'
+    | '/app/crm'
     | '/app/grupos'
     | '/app/instancias'
+    | '/app/mensagens'
     | '/app/reacoes'
     | '/app'
     | '/api/credits/pix'
@@ -170,10 +214,14 @@ export interface FileRouteTypes {
     | '/app'
     | '/cadastro'
     | '/login'
+    | '/app/agendamentos'
     | '/app/automacoes'
+    | '/app/comprar-whatsapp'
     | '/app/contatos'
+    | '/app/crm'
     | '/app/grupos'
     | '/app/instancias'
+    | '/app/mensagens'
     | '/app/reacoes'
     | '/app/'
     | '/api/credits/pix'
@@ -228,6 +276,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/agendamentos': {
+      id: '/app/agendamentos'
+      path: '/agendamentos'
+      fullPath: '/app/agendamentos'
+      preLoaderRoute: typeof AppAgendamentosRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/automacoes': {
       id: '/app/automacoes'
       path: '/automacoes'
@@ -235,11 +290,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAutomacoesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/comprar-whatsapp': {
+      id: '/app/comprar-whatsapp'
+      path: '/comprar-whatsapp'
+      fullPath: '/app/comprar-whatsapp'
+      preLoaderRoute: typeof AppComprarWhatsappRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/contatos': {
       id: '/app/contatos'
       path: '/contatos'
       fullPath: '/app/contatos'
       preLoaderRoute: typeof AppContatosRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/crm': {
+      id: '/app/crm'
+      path: '/crm'
+      fullPath: '/app/crm'
+      preLoaderRoute: typeof AppCrmRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/grupos': {
@@ -254,6 +323,13 @@ declare module '@tanstack/react-router' {
       path: '/instancias'
       fullPath: '/app/instancias'
       preLoaderRoute: typeof AppInstanciasRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/mensagens': {
+      id: '/app/mensagens'
+      path: '/mensagens'
+      fullPath: '/app/mensagens'
+      preLoaderRoute: typeof AppMensagensRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/reacoes': {
@@ -288,19 +364,27 @@ declare module '@tanstack/react-router' {
 }
 
 interface AppRouteChildren {
+  AppAgendamentosRoute: typeof AppAgendamentosRoute
   AppAutomacoesRoute: typeof AppAutomacoesRoute
+  AppComprarWhatsappRoute: typeof AppComprarWhatsappRoute
   AppContatosRoute: typeof AppContatosRoute
+  AppCrmRoute: typeof AppCrmRoute
   AppGruposRoute: typeof AppGruposRoute
   AppInstanciasRoute: typeof AppInstanciasRoute
+  AppMensagensRoute: typeof AppMensagensRoute
   AppReacoesRoute: typeof AppReacoesRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppAgendamentosRoute: AppAgendamentosRoute,
   AppAutomacoesRoute: AppAutomacoesRoute,
+  AppComprarWhatsappRoute: AppComprarWhatsappRoute,
   AppContatosRoute: AppContatosRoute,
+  AppCrmRoute: AppCrmRoute,
   AppGruposRoute: AppGruposRoute,
   AppInstanciasRoute: AppInstanciasRoute,
+  AppMensagensRoute: AppMensagensRoute,
   AppReacoesRoute: AppReacoesRoute,
   AppIndexRoute: AppIndexRoute,
 }

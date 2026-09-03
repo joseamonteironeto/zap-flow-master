@@ -1,5 +1,5 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { Bot, Inbox, MessageSquarePlus, Plus, ShieldBan, UserPlus } from "lucide-react";
+import { Inbox, MessageSquarePlus, Plus, ShieldBan, UserPlus } from "lucide-react";
 import { Card, PageHeader, Pill, StatCard } from "@/components/app/Ui";
 import { Bars, Sparkline } from "@/components/mockups/Panel";
 import { Button } from "@/components/ui/button";
@@ -27,7 +27,7 @@ const METRICS = [
 
 const SHORTCUTS = [
   { label: "Adicionar grupo", icon: Plus, to: "/app/grupos" },
-  { label: "Criar automação", icon: Bot, to: "/app/automacoes" },
+  { label: "Criar mensagem", icon: MessageSquarePlus, to: "/app/mensagens" },
   { label: "Criar resposta", icon: MessageSquarePlus, to: "/app/respostas" },
   { label: "Adicionar blacklist", icon: ShieldBan, to: "/app/blacklist/usuarios" },
   { label: "Novo contato", icon: UserPlus, to: "/app/contatos" },
@@ -48,7 +48,7 @@ function Overview() {
         subtitle="Bem-vindo, José Augusto Monteiro Neto • seu painel está pronto para começar"
         actions={
           <Button asChild size="sm">
-            <Link to="/app/automacoes">Nova automação</Link>
+            <Link to="/app/mensagens">Nova mensagem</Link>
           </Button>
         }
       />

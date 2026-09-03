@@ -33,7 +33,7 @@ export function Panel({
 }
 
 export function Bars({ data, className }: { data: number[]; className?: string }) {
-  const max = Math.max(...data);
+  const max = Math.max(1, ...data);
   return (
     <div className={cn("flex h-24 items-end gap-1.5", className)}>
       {data.map((v, i) => (

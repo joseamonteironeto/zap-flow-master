@@ -5,6 +5,8 @@ export const PANEL_USER = {
 
 const RESET_MARKER_KEY = "tudozap-data-version";
 const RESET_VERSION = "clean-panel-2026-09-03";
+const DEMO_RESET_MARKER_KEY = "tudozap-demo-data-version";
+const DEMO_RESET_VERSION = "remove-fixtures-2026-09-03";
 const LEGACY_DATA_KEYS = [
   "tudozap-credits",
   "tudozap-processed-payments",
@@ -18,8 +20,19 @@ const LEGACY_DATA_KEYS = [
  */
 export function ensureCleanPanelStorage() {
   if (typeof window === "undefined") return;
-  if (window.localStorage.getItem(RESET_MARKER_KEY) === RESET_VERSION) return;
-
-  for (const key of LEGACY_DATA_KEYS) window.localStorage.removeItem(key);
-  window.localStorage.setItem(RESET_MARKER_KEY, RESET_VERSION);
+  if (window.localStorage.getItem(RESET_MARKER_KEY) !== RESET_VERSION) {
+    for (const key of LEGACY_DATA_KEYS) window.localStorage.removeItem(key);
+    window.localStorage.setItem(RESET_MARKER_KEY, RESET_VERSION);
+  }
+  if (window.localStorage.getItem(DEMO_RESET_MARKER_KEY) !== DEMO_RESET_VERSION) {
+    for (const key of [
+      "tudozap-instances",
+      "tudozap-reaction-rules",
+      "tudozap-groups",
+      "tudozap-messages",
+      "tudozap-whatsapp-numbers",
+    ])
+      window.localStorage.removeItem(key);
+    window.localStorage.setItem(DEMO_RESET_MARKER_KEY, DEMO_RESET_VERSION);
+  }
 }

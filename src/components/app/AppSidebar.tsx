@@ -1,8 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
   BarChart3,
-  Bot,
-  Building2,
+  CalendarClock,
   ChevronDown,
   Contact,
   Gauge,
@@ -13,6 +12,7 @@ import {
   Settings,
   Shield,
   ShieldBan,
+  ShoppingCart,
   Smartphone,
   Smile,
   Users,
@@ -34,7 +34,8 @@ export const NAV: NavItem[] = [
   { label: "Instâncias", icon: Smartphone, to: "/app/instancias" },
   { label: "Grupos", icon: Users, to: "/app/grupos" },
   { label: "Reações", icon: Smile, to: "/app/reacoes" },
-  { label: "Automações", icon: Bot, to: "/app/automacoes" },
+  { label: "Mensagens", icon: MessageSquare, to: "/app/mensagens" },
+  { label: "Agendamentos", icon: CalendarClock, to: "/app/agendamentos" },
   { label: "Fiscal", icon: Shield, to: "/app/fiscal" },
   {
     label: "Blacklist",
@@ -49,8 +50,8 @@ export const NAV: NavItem[] = [
   { label: "Contatos", icon: Contact, to: "/app/contatos" },
   { label: "CRM", icon: Layers, to: "/app/crm" },
   { label: "Relatórios", icon: BarChart3, to: "/app/relatorios" },
-  { label: "Equipe", icon: Building2, to: "/app/equipe" },
   { label: "Integrações", icon: Plug, to: "/app/integracoes" },
+  { label: "Comprar WhatsApp", icon: ShoppingCart, to: "/app/comprar-whatsapp" },
   { label: "Configurações", icon: Settings, to: "/app/configuracoes" },
 ];
 
@@ -86,7 +87,10 @@ export function AppSidebarContent({ onNavigate }: { onNavigate?: () => void }) {
                 <item.icon className="size-4 shrink-0" />
                 <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
                 <ChevronDown
-                  className={cn("size-3.5 shrink-0 transition-transform", openGroup && "rotate-180")}
+                  className={cn(
+                    "size-3.5 shrink-0 transition-transform",
+                    openGroup && "rotate-180",
+                  )}
                 />
               </button>
               {openGroup ? (
