@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ensureCleanPanelStorage } from "@/lib/panel-data";
 
 export const Route = createFileRoute("/app/instancias")({
   head: () => ({ meta: [{ title: "Instâncias | Painel TudoZap" }, { name: "description", content: "Conecte e acompanhe suas instâncias próprias do WhatsApp no TudoZap." }, { name: "robots", content: "noindex" }] }),
@@ -26,12 +27,7 @@ type Instance = {
   messages: number;
 };
 
-const DEFAULT_INSTANCES: Instance[] = [
-  { id: 1, name: "Atendimento Principal", phone: "+55 11 98765-4321", initials: "AP", color: "bg-emerald-600", status: "connected", lastSeen: "Agora", messages: 18342 },
-  { id: 2, name: "Comercial e Vendas", phone: "+55 11 97654-1098", initials: "CV", color: "bg-sky-600", status: "connected", lastSeen: "Há 1 min", messages: 9684 },
-  { id: 3, name: "Suporte TudoZap", phone: "+55 21 99881-7722", initials: "ST", color: "bg-violet-600", status: "connected", lastSeen: "Há 3 min", messages: 7251 },
-  { id: 4, name: "Campanhas", phone: "+55 31 98870-4455", initials: "CA", color: "bg-amber-600", status: "offline", lastSeen: "Há 2 horas", messages: 4108 },
-];
+const DEFAULT_INSTANCES: Instance[] = [];
 
 function statusLabel(status: Instance["status"]) {
   if (status === "connected") return <Pill tone="success"><span className="size-1.5 rounded-full bg-current" />Conectada</Pill>;
@@ -48,8 +44,9 @@ function InstancesPage() {
   const [name, setName] = useState("");
 
   useEffect(() => {
+    ensureCleanPanelStorage();
     const stored = window.localStorage.getItem("tudozap-instances");
-    if (stored) { try { setInstances(JSON.parse(stored)); } catch { /* mantém a demonstração */ } }
+    if (stored) { try { setInstances(JSON.parse(stored)); } catch { /* ignora dados locais inválidos */ } }
     setHydrated(true);
   }, []);
   useEffect(() => { if (hydrated) window.localStorage.setItem("tudozap-instances", JSON.stringify(instances)); }, [instances, hydrated]);
@@ -77,7 +74,7 @@ function InstancesPage() {
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Instâncias conectadas" value={`${connected}`} delta={`de ${instances.length} cadastradas`} />
         <StatCard label="Mensagens processadas" value={totalMessages.toLocaleString("pt-BR")} delta="nos últimos 30 dias" />
-        <StatCard label="Disponibilidade" value="99,8%" delta="operação estável" />
+        <StatCard label="Disponibilidade" value="—" delta="sem instâncias" />
         <StatCard label="Desconectadas" value={`${instances.length - connected}`} delta={instances.length === connected ? "todas online" : "requer atenção"} tone={instances.length === connected ? "up" : "down"} />
       </section>
 
@@ -99,6 +96,7 @@ function InstancesPage() {
             <div className="mt-4 border-t border-border pt-3"><p className="text-[11px] text-muted-foreground">Mensagens processadas</p><p className="mt-1 text-lg font-semibold tabular-nums">{instance.messages.toLocaleString("pt-BR")}</p></div>
           </article>
         ))}
+        {!instances.length ? <div className="col-span-full flex flex-col items-center rounded-2xl border border-dashed border-border bg-muted/20 px-6 py-12 text-center"><Smartphone className="size-8 text-primary" /><h2 className="mt-3 font-semibold">Nenhuma instância conectada</h2><p className="mt-1 max-w-md text-sm text-muted-foreground">Conecte seu primeiro WhatsApp para começar a sincronizar grupos e mensagens.</p><Button className="mt-4" size="sm" onClick={() => setDialogOpen(true)}><Plus className="size-4" />Conectar nova instância</Button></div> : null}
       </Card>
 
       <div className="flex items-start gap-3 rounded-2xl border border-primary/20 bg-credit/55 p-4"><Smartphone className="mt-0.5 size-4 shrink-0 text-primary" /><p className="text-xs leading-relaxed text-muted-foreground"><strong className="text-foreground">Instâncias próprias:</strong> cada número mantém sua identidade, foto e histórico de conexão separados dentro do painel.</p></div>

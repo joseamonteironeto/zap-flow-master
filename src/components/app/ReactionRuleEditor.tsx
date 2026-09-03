@@ -25,7 +25,7 @@ export type ReactionRuleData = {
   active: boolean;
 };
 
-const GROUPS = ["Todos os grupos", "Ofertas Premium", "Comunidade Principal", "Clube de Benefícios", "Suporte Nível 1", "Clientes VIP", "Lançamentos", "Afiliados TudoZap"];
+const GROUPS: string[] = [];
 const EMOJIS = ["🔥", "👍", "❤️", "✅", "😍", "🚀", "🙏", "🎉", "👋", "💚", "👏", "💯"];
 
 const blankRule = (): ReactionRuleData => ({ id: Date.now(), name: "", groups: [], keywords: [], emojis: [], minBots: 10, maxBots: 20, minDelay: 2, maxDelay: 5, adminsOnly: true, today: 0, total: 0, success: 100, active: true });
@@ -95,6 +95,7 @@ export function ReactionRuleEditor({ open, rule, onOpenChange, onSave }: { open:
                 const disabled = form.groups.includes("Todos os grupos") && group !== "Todos os grupos";
                 return <label key={group} className={cn("flex cursor-pointer items-center gap-3 rounded-xl border border-border p-3 text-sm hover:bg-muted/45", checked && "border-primary bg-credit", disabled && "cursor-not-allowed opacity-45")}><Checkbox checked={checked} disabled={disabled} onCheckedChange={(value) => toggleGroup(group, value === true)} /><span className="min-w-0 truncate">{group}</span></label>;
               })}
+              {!GROUPS.length ? <p className="col-span-full rounded-xl border border-dashed border-border p-4 text-center text-sm text-muted-foreground">Nenhum grupo disponível. Conecte uma instância e sincronize os grupos primeiro.</p> : null}
             </div>
           </section>
 

@@ -1,9 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Plus, Search } from "lucide-react";
-import { Card, DataTable, PageHeader, Pill, StatCard } from "@/components/app/Ui";
+import { Plus, Users } from "lucide-react";
+import { Card, PageHeader, StatCard } from "@/components/app/Ui";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 
 export const Route = createFileRoute("/app/grupos")({
   head: () => ({
@@ -19,20 +17,12 @@ export const Route = createFileRoute("/app/grupos")({
   component: GroupsPage,
 });
 
-const GROUPS = [
-  ["Comunidade Principal", "1.024", "Ativo", "Fiscal + Blacklist", true],
-  ["Ofertas Premium", "876", "Ativo", "Respostas automáticas", true],
-  ["Suporte Nível 1", "412", "Moderação", "Fiscal", true],
-  ["Revenda Sul", "298", "Ativo", "CRM", false],
-  ["Lançamentos 2026", "154", "Pausado", "Nenhuma", false],
-] as const;
-
 function GroupsPage() {
   return (
     <>
       <PageHeader
         title="Grupos"
-        subtitle="127 grupos conectados • 4 aguardando aprovação"
+        subtitle="Os grupos das suas instâncias conectadas aparecerão aqui"
         actions={
           <Button size="sm">
             <Plus className="size-4" /> Adicionar grupo
@@ -41,35 +31,18 @@ function GroupsPage() {
       />
 
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Grupos ativos" value="118" delta="+6 esta semana" />
-        <StatCard label="Participantes" value="42.117" delta="+1.204" />
-        <StatCard label="Em moderação" value="5" delta="-2" tone="down" />
-        <StatCard label="Pausados" value="4" />
+        <StatCard label="Grupos ativos" value="0" delta="nenhum grupo" />
+        <StatCard label="Participantes" value="0" delta="nenhum participante" />
+        <StatCard label="Em moderação" value="0" />
+        <StatCard label="Pausados" value="0" />
       </section>
 
       <Card
         title="Todos os grupos"
         description="Ative o monitoramento por grupo"
-        actions={
-          <div className="relative hidden sm:block">
-            <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input placeholder="Buscar grupo" className="h-9 w-56 pl-9" />
-          </div>
-        }
-        bodyClassName="p-0 py-4 sm:py-5"
+        bodyClassName="py-10"
       >
-        <DataTable
-          columns={["Grupo", "Membros", "Status", "Automações", "Monitorar"]}
-          rows={GROUPS.map(([name, members, status, autos, on]) => [
-            <span className="font-medium">{name}</span>,
-            members,
-            <Pill tone={status === "Ativo" ? "success" : status === "Pausado" ? "muted" : "warning"}>
-              {status}
-            </Pill>,
-            <span className="text-muted-foreground">{autos}</span>,
-            <Switch defaultChecked={on} aria-label={`Monitorar ${name}`} />,
-          ])}
-        />
+        <div className="flex flex-col items-center text-center"><Users className="size-8 text-primary" /><h2 className="mt-3 font-semibold">Nenhum grupo sincronizado</h2><p className="mt-1 max-w-md text-sm text-muted-foreground">Conecte uma instância para importar seus grupos do WhatsApp.</p></div>
       </Card>
     </>
   );

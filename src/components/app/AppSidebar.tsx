@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { Logo } from "@/components/brand/Logo";
+import { PANEL_USER } from "@/lib/panel-data";
 import { cn } from "@/lib/utils";
 
 type NavItem = {
@@ -130,8 +131,8 @@ export function AppSidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       <div className="border-t border-sidebar-border p-3">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-xl bg-sidebar-accent/60 px-3 py-2.5">
           <div className="min-w-0">
-            <p className="truncate text-sm font-medium">Mariana Souza</p>
-            <p className="truncate text-xs text-primary">Plano Pro</p>
+            <p className="truncate text-sm font-medium">{PANEL_USER.fullName}</p>
+            <p className="truncate text-xs text-primary">{PANEL_USER.plan}</p>
           </div>
           <div className="flex shrink-0 gap-1">
             <Link

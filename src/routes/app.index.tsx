@@ -1,5 +1,5 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { Bot, CheckCircle2, MessageSquarePlus, Pause, Plus, ShieldBan, UserPlus } from "lucide-react";
+import { Bot, Inbox, MessageSquarePlus, Plus, ShieldBan, UserPlus } from "lucide-react";
 import { Card, PageHeader, Pill, StatCard } from "@/components/app/Ui";
 import { Bars, Sparkline } from "@/components/mockups/Panel";
 import { Button } from "@/components/ui/button";
@@ -19,10 +19,10 @@ export const Route = createFileRoute("/app/")({
 });
 
 const METRICS = [
-  { label: "Grupos conectados", value: "127", delta: "+12% vs. ontem" },
-  { label: "Mensagens processadas", value: "128.430", delta: "+8,4% vs. ontem" },
-  { label: "Automações executadas", value: "8.641", delta: "+21% vs. ontem" },
-  { label: "Contatos no CRM", value: "2.419", delta: "+34 hoje" },
+  { label: "Grupos conectados", value: "0", delta: "nenhum grupo" },
+  { label: "Mensagens processadas", value: "0", delta: "nenhuma mensagem" },
+  { label: "Automações executadas", value: "0", delta: "nenhuma execução" },
+  { label: "Contatos no CRM", value: "0", delta: "nenhum contato" },
 ];
 
 const SHORTCUTS = [
@@ -34,26 +34,18 @@ const SHORTCUTS = [
 ] as const;
 
 const SERVICES = [
-  ["Conexão WhatsApp", "Operacional", "success"],
-  ["Motor de automações", "Operacional", "success"],
-  ["Fiscal automático", "Automação pausada", "warning"],
-  ["Sincronização CRM", "Operacional", "success"],
+  ["Conexão WhatsApp", "Não configurada"],
+  ["Motor de automações", "Aguardando configuração"],
+  ["Fiscal automático", "Aguardando configuração"],
+  ["Sincronização CRM", "Aguardando configuração"],
 ] as const;
-
-const ACTIVITY = [
-  "10:42 — Resposta automática enviada em Comunidade Principal",
-  "10:41 — Novo contato adicionado ao CRM",
-  "10:40 — URL bloqueada em Ofertas Premium",
-  "10:38 — Reação automática aplicada",
-  "10:31 — Usuário adicionado à blacklist",
-];
 
 function Overview() {
   return (
     <>
       <PageHeader
         title="Visão Geral"
-        subtitle="Operação em tempo real • atualizado agora"
+        subtitle="Bem-vindo, José Augusto Monteiro Neto • seu painel está pronto para começar"
         actions={
           <Button asChild size="sm">
             <Link to="/app/automacoes">Nova automação</Link>
@@ -79,38 +71,24 @@ function Overview() {
 
       <section className="grid gap-4 lg:grid-cols-2">
         <Card title="Mensagens processadas" description="Últimos 7 dias">
-          <Sparkline data={[22, 34, 28, 46, 41, 58, 66]} className="h-24" />
+          <Sparkline data={[0, 0, 0, 0, 0, 0, 0]} className="h-24" />
         </Card>
         <Card title="Automações executadas" description="Últimos 7 dias">
-          <Bars data={[18, 26, 21, 38, 33, 47, 55]} />
+          <Bars data={[0, 0, 0, 0, 0, 0, 0]} />
         </Card>
       </section>
 
       <section className="grid gap-4 lg:grid-cols-[1.3fr_1fr]">
         <Card title="Atividade recente">
-          <ul className="space-y-3">
-            {ACTIVITY.map((a) => (
-              <li key={a} className="flex items-center gap-2.5 text-sm">
-                <span className="size-1.5 shrink-0 rounded-full bg-primary" />
-                <span className="min-w-0 truncate text-foreground/85">{a}</span>
-              </li>
-            ))}
-          </ul>
+          <div className="flex flex-col items-center py-8 text-center"><Inbox className="size-8 text-primary" /><p className="mt-3 text-sm font-medium">Nenhuma atividade registrada</p><p className="mt-1 text-xs text-muted-foreground">As ações da sua operação aparecerão aqui.</p></div>
         </Card>
 
         <Card title="Status dos serviços">
           <ul className="space-y-3">
-            {SERVICES.map(([name, status, tone]) => (
+            {SERVICES.map(([name, status]) => (
               <li key={name} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
                 <span className="min-w-0 truncate text-sm text-foreground/85">{name}</span>
-                <Pill tone={tone}>
-                  {tone === "success" ? (
-                    <CheckCircle2 className="size-3" />
-                  ) : (
-                    <Pause className="size-3" />
-                  )}
-                  {status}
-                </Pill>
+                <Pill tone="muted">{status}</Pill>
               </li>
             ))}
           </ul>

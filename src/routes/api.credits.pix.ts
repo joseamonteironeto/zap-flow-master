@@ -4,14 +4,21 @@ import { mercadoPagoRequest, type MercadoPagoPayment } from "@/lib/mercado-pago"
 
 type PixRequest = {
   credits?: number;
-  email?: string;
   fullName?: string;
   documentType?: "CPF" | "CNPJ";
   documentNumber?: string;
 };
 
-function fail(message: string, status = 400) {
-  return Response.json({ error: message }, { status });
+type MercadoPagoAccount = {
+  email?: string;
+};
+
+function fail(message: string, status = 400, code?: string) {
+  return Response.json({ error: message, ...(code ? { code } : {}) }, { status });
+}
+
+function isMissingPixKey(error: unknown) {
+  return error instanceof Error && /collector user without key enabled for qr render/i.test(error.message);
 }
 
 export const Route = createFileRoute("/api/credits/pix")({
@@ -21,15 +28,19 @@ export const Route = createFileRoute("/api/credits/pix")({
         try {
           const body = (await request.json()) as PixRequest;
           const credits = Number(body.credits);
-          const email = body.email?.trim();
           const fullName = body.fullName?.trim();
           const documentType = body.documentType === "CNPJ" ? "CNPJ" : "CPF";
           const documentNumber = body.documentNumber?.replace(/\D/g, "");
 
           if (!Number.isInteger(credits) || credits < 1 || credits > 1_000_000) return fail("Quantidade de créditos inválida.");
-          if (!email || !/^\S+@\S+\.\S+$/.test(email)) return fail("Informe um e-mail válido.");
           if (!fullName || fullName.length < 3) return fail("Informe o nome completo do pagador.");
           if (!documentNumber || (documentType === "CPF" ? documentNumber.length !== 11 : documentNumber.length !== 14)) return fail(`Informe um ${documentType} válido.`);
+
+          const account = await mercadoPagoRequest<MercadoPagoAccount>("/users/me");
+          const email = account.email?.trim();
+          if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
+            return fail("A conta Mercado Pago não possui um e-mail válido para gerar o Pix.", 409, "ACCOUNT_EMAIL_REQUIRED");
+          }
 
           const [firstName, ...lastNameParts] = fullName.split(/\s+/);
           const idempotencyKey = crypto.randomUUID();
@@ -69,6 +80,13 @@ export const Route = createFileRoute("/api/credits/pix")({
           });
         } catch (error) {
           if (error instanceof Error && error.message === "MERCADO_PAGO_NOT_CONFIGURED") return fail("O Mercado Pago ainda aguarda as credenciais da aplicação.", 503);
+          if (isMissingPixKey(error)) {
+            return fail(
+              "Cadastre uma chave Pix na conta Mercado Pago que receberá os pagamentos e tente novamente.",
+              409,
+              "PIX_KEY_REQUIRED",
+            );
+          }
           console.error("Falha ao criar Pix Mercado Pago", error);
           return fail(error instanceof Error ? error.message : "Não foi possível gerar o Pix.", 502);
         }

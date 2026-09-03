@@ -1,6 +1,6 @@
 import { Outlet, createFileRoute } from "@tanstack/react-router";
 import { Bell, Menu, Search } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AppSidebarContent } from "@/components/app/AppSidebar";
 import { Logo } from "@/components/brand/Logo";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { CreditsWidget } from "@/components/app/CreditsWidget";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
+import { ensureCleanPanelStorage } from "@/lib/panel-data";
 
 export const Route = createFileRoute("/app")({
   head: () => ({
@@ -32,6 +33,10 @@ export const Route = createFileRoute("/app")({
 
 function AppLayout() {
   const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    ensureCleanPanelStorage();
+  }, []);
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[260px_minmax(0,1fr)]">

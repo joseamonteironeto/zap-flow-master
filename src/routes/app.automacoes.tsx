@@ -1,9 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Bot, Play, Plus } from "lucide-react";
-import { Card, DataTable, PageHeader, Pill, StatCard } from "@/components/app/Ui";
+import { Bot, Plus } from "lucide-react";
+import { Card, PageHeader, StatCard } from "@/components/app/Ui";
 import { Sparkline } from "@/components/mockups/Panel";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 
 export const Route = createFileRoute("/app/automacoes")({
   head: () => ({
@@ -19,21 +18,6 @@ export const Route = createFileRoute("/app/automacoes")({
   component: AutomationsPage,
 });
 
-const FLOWS = [
-  ["Boas-vindas com regras", "Entrada no grupo", "Enviar mensagem + fixar", "3.104", true],
-  ["Anti-spam de links", "Mensagem com URL", "Apagar + advertir", "1.877", true],
-  ["Qualificação de lead", "Palavra “orçamento”", "Criar card no CRM", "742", true],
-  ["Resumo diário", "Todo dia às 19h", "Enviar relatório", "31", false],
-] as const;
-
-const STEPS = [
-  ["Gatilho", "Mensagem recebida contendo URL"],
-  ["Condição", "Remetente não é administrador"],
-  ["Ação 1", "Apagar mensagem"],
-  ["Ação 2", "Enviar advertência privada"],
-  ["Ação 3", "Registrar na blacklist após 3 avisos"],
-] as const;
-
 function AutomationsPage() {
   return (
     <>
@@ -48,57 +32,24 @@ function AutomationsPage() {
       />
 
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Execuções hoje" value="8.641" delta="+21%" />
-        <StatCard label="Fluxos ativos" value="17" />
-        <StatCard label="Taxa de sucesso" value="99,2%" />
-        <StatCard label="Falhas" value="6" delta="-4" tone="down" />
+        <StatCard label="Execuções hoje" value="0" delta="nenhuma execução" />
+        <StatCard label="Fluxos ativos" value="0" />
+        <StatCard label="Taxa de sucesso" value="—" delta="sem dados" />
+        <StatCard label="Falhas" value="0" />
       </section>
 
-      <Card title="Fluxos" bodyClassName="p-0 py-4 sm:py-5">
-        <DataTable
-          columns={["Fluxo", "Gatilho", "Ações", "Execuções", "Ativo"]}
-          rows={FLOWS.map(([name, trigger, actions, runs, on]) => [
-            <span className="flex items-center gap-2 font-medium">
-              <Bot className="size-4 text-primary" /> {name}
-            </span>,
-            <span className="text-muted-foreground">{trigger}</span>,
-            actions,
-            runs,
-            <Switch defaultChecked={on} aria-label={`Ativar ${name}`} />,
-          ])}
-        />
+      <Card title="Fluxos" bodyClassName="py-10">
+        <div className="flex flex-col items-center text-center"><Bot className="size-8 text-primary" /><h2 className="mt-3 font-semibold">Nenhuma automação criada</h2><p className="mt-1 max-w-md text-sm text-muted-foreground">Crie seu primeiro fluxo para automatizar tarefas no WhatsApp.</p></div>
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-        <Card
-          title="Editor de fluxo"
-          description="Anti-spam de links"
-          actions={
-            <Button variant="outline" size="sm">
-              <Play className="size-4" /> Testar
-            </Button>
-          }
-        >
-          <ol className="space-y-3">
-            {STEPS.map(([kind, text], i) => (
-              <li
-                key={kind}
-                className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3 rounded-xl border border-border bg-surface px-3 py-3"
-              >
-                <span className="grid size-6 place-items-center rounded-lg bg-primary/12 text-xs text-primary">
-                  {i + 1}
-                </span>
-                <div className="min-w-0">
-                  <Pill tone={i === 0 ? "success" : i === 1 ? "warning" : "muted"}>{kind}</Pill>
-                  <p className="mt-1.5 text-sm text-foreground/85">{text}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
+        <Card title="Editor de fluxo" description="Selecione ou crie uma automação">
+          <p className="py-10 text-center text-sm text-muted-foreground">Nenhum fluxo selecionado.</p>
         </Card>
 
         <Card title="Execuções" description="Últimos 7 dias">
-          <Sparkline data={[30, 42, 38, 55, 49, 68, 74]} className="h-28" />
+          <Sparkline data={[0, 0, 0, 0, 0, 0, 0]} className="h-28" />
+          <p className="mt-3 text-center text-xs text-muted-foreground">Sem dados ainda</p>
         </Card>
       </div>
     </>

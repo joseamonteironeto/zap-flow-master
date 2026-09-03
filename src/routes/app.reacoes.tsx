@@ -7,20 +7,14 @@ import { Bars } from "@/components/mockups/Panel";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { ensureCleanPanelStorage } from "@/lib/panel-data";
 
 export const Route = createFileRoute("/app/reacoes")({
   head: () => ({ meta: [{ title: "Reações | Painel TudoZap" }, { name: "description", content: "Crie e edite regras de reações automáticas por grupo, palavra-chave, emoji, range de bots e delay individual." }, { name: "robots", content: "noindex" }] }),
   component: ReactionsPage,
 });
 
-const DEFAULT_RULES: ReactionRuleData[] = [
-  { id: 1, name: "Campanhas e promoções", groups: ["Ofertas Premium", "Comunidade Principal", "Clube de Benefícios"], keywords: ["promoção", "oferta", "desconto", "cupom"], emojis: ["🔥", "😍", "🚀"], minBots: 30, maxBots: 50, minDelay: 2, maxDelay: 5, adminsOnly: true, today: 1284, total: 18240, success: 97.8, active: true },
-  { id: 2, name: "Agradecimentos", groups: ["Todos os grupos"], keywords: ["obrigado", "valeu", "gratidão"], emojis: ["👍", "❤️", "🙏"], minBots: 15, maxBots: 25, minDelay: 1, maxDelay: 10, adminsOnly: true, today: 942, total: 11905, success: 99.1, active: true },
-  { id: 3, name: "Pedidos confirmados", groups: ["Suporte Nível 1", "Clientes VIP"], keywords: ["pedido confirmado", "pagamento aprovado"], emojis: ["✅", "🎉"], minBots: 8, maxBots: 12, minDelay: 1, maxDelay: 3, adminsOnly: true, today: 611, total: 7480, success: 96.4, active: true },
-  { id: 4, name: "Boas-vindas", groups: ["Comunidade Principal"], keywords: ["bem-vindo", "entrou no grupo"], emojis: ["👋", "💚"], minBots: 10, maxBots: 20, minDelay: 1, maxDelay: 60, adminsOnly: true, today: 410, total: 5126, success: 94.7, active: false },
-];
-
-const TOP_GROUPS = [["Ofertas Premium", "824", 100], ["Comunidade Principal", "671", 81], ["Clube de Benefícios", "438", 53], ["Clientes VIP", "294", 36]] as const;
+const DEFAULT_RULES: ReactionRuleData[] = [];
 
 function RuleCard({ rule, onToggle, onEdit }: { rule: ReactionRuleData; onToggle: (active: boolean) => void; onEdit: () => void }) {
   const groupCount = rule.groups.includes("Todos os grupos") ? 94 : rule.groups.length;
@@ -51,8 +45,9 @@ function ReactionsPage() {
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
+    ensureCleanPanelStorage();
     const stored = window.localStorage.getItem("tudozap-reaction-rules");
-    if (stored) { try { setRules((JSON.parse(stored) as ReactionRuleData[]).map((rule) => ({ ...rule, minDelay: rule.minDelay ?? 2, maxDelay: rule.maxDelay ?? 5, adminsOnly: rule.adminsOnly ?? true }))); } catch { /* mantém os dados de demonstração */ } }
+    if (stored) { try { setRules((JSON.parse(stored) as ReactionRuleData[]).map((rule) => ({ ...rule, minDelay: rule.minDelay ?? 2, maxDelay: rule.maxDelay ?? 5, adminsOnly: rule.adminsOnly ?? true }))); } catch { /* ignora dados locais inválidos */ } }
     setHydrated(true);
   }, []);
   useEffect(() => { if (hydrated) window.localStorage.setItem("tudozap-reaction-rules", JSON.stringify(rules)); }, [rules, hydrated]);
@@ -65,15 +60,15 @@ function ReactionsPage() {
   return (
     <>
       <PageHeader title="Reações automáticas" subtitle="Controle onde, quando e como seus bots reagem às mensagens" actions={<Button size="sm" onClick={openNew}><Plus className="size-4" /> Nova regra</Button>} />
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4"><StatCard label="Reações hoje" value={rules.reduce((sum, rule) => sum + rule.today, 0).toLocaleString("pt-BR")} delta="+18% vs. ontem" /><StatCard label="Mensagens reagidas" value="1.086" delta="média de 3 por mensagem" /><StatCard label="Regras ativas" value={`${rules.filter((rule) => rule.active).length}`} delta={`de ${rules.length} configuradas`} /><StatCard label="Taxa de execução" value="97,6%" delta="+1,2% esta semana" /></section>
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4"><StatCard label="Reações hoje" value={rules.reduce((sum, rule) => sum + rule.today, 0).toLocaleString("pt-BR")} delta="nenhuma execução" /><StatCard label="Mensagens reagidas" value="0" delta="nenhuma mensagem" /><StatCard label="Regras ativas" value={`${rules.filter((rule) => rule.active).length}`} delta={`de ${rules.length} configuradas`} /><StatCard label="Taxa de execução" value="—" delta="sem dados" /></section>
 
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(300px,.75fr)]">
-        <section className="space-y-4" aria-label="Regras de reação"><div className="flex items-center justify-between gap-3"><div><h2 className="text-sm font-semibold">Regras configuradas</h2><p className="text-xs text-muted-foreground">Clique em uma regra para editar grupos, gatilhos, emojis e bots</p></div><Pill>{rules.length} regras</Pill></div>{rules.map((rule) => <RuleCard key={rule.id} rule={rule} onToggle={(active) => toggleRule(rule.id, active)} onEdit={() => openEdit(rule)} />)}</section>
+        <section className="space-y-4" aria-label="Regras de reação"><div className="flex items-center justify-between gap-3"><div><h2 className="text-sm font-semibold">Regras configuradas</h2><p className="text-xs text-muted-foreground">Clique em uma regra para editar grupos, gatilhos, emojis e bots</p></div><Pill>{rules.length} regras</Pill></div>{rules.map((rule) => <RuleCard key={rule.id} rule={rule} onToggle={(active) => toggleRule(rule.id, active)} onEdit={() => openEdit(rule)} />)}{!rules.length ? <div className="flex flex-col items-center rounded-2xl border border-dashed border-border bg-muted/20 px-6 py-14 text-center"><Bot className="size-8 text-primary" /><h2 className="mt-3 font-semibold">Nenhuma regra criada</h2><p className="mt-1 max-w-md text-sm text-muted-foreground">Depois de conectar uma instância e sincronizar os grupos, crie sua primeira regra de reação.</p><Button className="mt-4" size="sm" onClick={openNew}><Plus className="size-4" />Nova regra</Button></div> : null}</section>
 
         <aside className="space-y-4 xl:sticky xl:top-24">
-          <Card title="Volume de reações" description="Últimos 7 dias" actions={<Pill tone="success">+18%</Pill>}><Bars data={[36, 42, 38, 55, 49, 67, 76]} className="h-32" /><div className="mt-3 flex items-center justify-between text-[11px] text-muted-foreground"><span>27 ago</span><span>Hoje</span></div></Card>
-          <Card title="Grupos com mais reações" description="Hoje"><div className="space-y-4">{TOP_GROUPS.map(([name, count, width]) => <div key={name}><div className="mb-1.5 flex items-center justify-between gap-3 text-xs"><span className="truncate font-medium">{name}</span><span className="tabular-nums text-muted-foreground">{count}</span></div><div className="h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${width}%` }} /></div></div>)}</div></Card>
-          <Card title="Emojis mais usados" description="Distribuição de hoje"><div className="grid grid-cols-3 gap-2">{[["🔥", "31%"], ["👍", "24%"], ["✅", "18%"], ["❤️", "14%"], ["😍", "8%"], ["Outros", "5%"]].map(([emoji, value]) => <div key={emoji} className="rounded-xl border border-border bg-background p-2.5 text-center"><p className="text-lg">{emoji}</p><p className="mt-1 text-xs font-semibold">{value}</p></div>)}</div></Card>
+          <Card title="Volume de reações" description="Últimos 7 dias"><Bars data={[0, 0, 0, 0, 0, 0, 0]} className="h-32" /><div className="mt-3 text-center text-xs text-muted-foreground">Sem dados ainda</div></Card>
+          <Card title="Grupos com mais reações" description="Hoje"><p className="py-6 text-center text-sm text-muted-foreground">Nenhuma reação registrada.</p></Card>
+          <Card title="Emojis mais usados" description="Distribuição de hoje"><p className="py-6 text-center text-sm text-muted-foreground">Nenhum emoji utilizado.</p></Card>
           <div className="flex items-start gap-3 rounded-2xl border border-primary/20 bg-credit/55 p-4"><Clock3 className="mt-0.5 size-4 shrink-0 text-primary" /><p className="text-xs leading-relaxed text-muted-foreground"><strong className="text-foreground">Distribuição natural:</strong> a quantidade de bots e o delay individual são sorteados dentro dos ranges configurados.</p></div>
         </aside>
       </div>
