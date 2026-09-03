@@ -1,25 +1,22 @@
-import logoAsset from "@/assets/tudozap-logo.png.asset.json";
 import { cn } from "@/lib/utils";
 
-export function LogoMark({ className }: { className?: string }) {
-  return (
-    <span className={cn("relative grid size-9 shrink-0 place-items-center", className)}>
-      <img
-        src={logoAsset.url}
-        alt="TudoZap"
-        className="size-full object-contain object-left"
-        style={{ objectPosition: "left center", clipPath: "inset(0 71% 0 0)" }}
-      />
-    </span>
-  );
-}
+const logoUrl = "/brand/tudozap-logo-header.png";
 
 export function Logo({ className }: { className?: string }) {
   return (
-    <img
-      src={logoAsset.url}
-      alt="TudoZap"
-      className={cn("h-9 w-auto max-w-[170px] shrink-0 object-contain", className)}
-    />
+    <span
+      className={cn(
+        "inline-flex h-9 shrink-0 items-center text-[22px] font-bold leading-none tracking-tight",
+        className,
+      )}
+      aria-label="TudoZap"
+    >
+      <span className="flex h-full w-[9rem] items-center dark:hidden">
+        <img src={logoUrl} alt="TudoZap" className="block h-auto w-full object-contain" />
+      </span>
+      <span className="hidden items-center dark:inline-flex">
+        <span className="text-foreground">Tudo</span><span className="text-primary">Zap</span>
+      </span>
+    </span>
   );
 }

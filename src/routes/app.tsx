@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { CreditsWidget } from "@/components/app/CreditsWidget";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
 
 export const Route = createFileRoute("/app")({
   head: () => ({
@@ -54,7 +56,7 @@ function AppLayout() {
             </Sheet>
 
             <div className="lg:hidden">
-              <Logo className="h-7" />
+              <Logo className="h-8 text-lg" />
             </div>
 
             <div className="relative hidden min-w-0 flex-1 max-w-sm lg:block">
@@ -64,10 +66,12 @@ function AppLayout() {
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
+            <CreditsWidget />
+            <ThemeToggle />
             <Button variant="outline" size="icon" aria-label="Notificações">
               <Bell className="size-4" />
             </Button>
-            <Badge className="hidden sm:inline-flex">Conectado</Badge>
+            <Badge className="hidden md:inline-flex">Conectado</Badge>
           </div>
         </header>
 

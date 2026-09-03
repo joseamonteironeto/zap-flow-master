@@ -28,6 +28,22 @@ import {
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/")({
+  head: () => ({
+    meta: [
+      { title: "TudoZap | Gestão e Automação para WhatsApp" },
+      {
+        name: "description",
+        content: "Automatize grupos, atendimento e contatos do WhatsApp com CRM, regras e relatórios em um único painel.",
+      },
+      { property: "og:title", content: "TudoZap | Gestão e Automação para WhatsApp" },
+      {
+        property: "og:description",
+        content: "Automatize grupos, atendimento e contatos do WhatsApp com CRM, regras e relatórios em um único painel.",
+      },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
+    ],
+  }),
   component: Landing,
 });
 

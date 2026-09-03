@@ -17,7 +17,11 @@ import { Route as AppIndexRouteImport } from './routes/app.index'
 import { Route as AppAutomacoesRouteImport } from './routes/app.automacoes'
 import { Route as AppContatosRouteImport } from './routes/app.contatos'
 import { Route as AppGruposRouteImport } from './routes/app.grupos'
+import { Route as AppInstanciasRouteImport } from './routes/app.instancias'
 import { Route as AppReacoesRouteImport } from './routes/app.reacoes'
+import { Route as ApiCreditsPixRouteImport } from './routes/api.credits.pix'
+import { Route as ApiCreditsStatusRouteImport } from './routes/api.credits.status'
+import { Route as ApiMercadopagoWebhookRouteImport } from './routes/api.mercadopago.webhook'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -59,10 +63,30 @@ const AppGruposRoute = AppGruposRouteImport.update({
   path: '/grupos',
   getParentRoute: () => AppRoute,
 } as any)
+const AppInstanciasRoute = AppInstanciasRouteImport.update({
+  id: '/instancias',
+  path: '/instancias',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppReacoesRoute = AppReacoesRouteImport.update({
   id: '/reacoes',
   path: '/reacoes',
   getParentRoute: () => AppRoute,
+} as any)
+const ApiCreditsPixRoute = ApiCreditsPixRouteImport.update({
+  id: '/api/credits/pix',
+  path: '/api/credits/pix',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCreditsStatusRoute = ApiCreditsStatusRouteImport.update({
+  id: '/api/credits/status',
+  path: '/api/credits/status',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMercadopagoWebhookRoute = ApiMercadopagoWebhookRouteImport.update({
+  id: '/api/mercadopago/webhook',
+  path: '/api/mercadopago/webhook',
+  getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
@@ -73,8 +97,12 @@ export interface FileRoutesByFullPath {
   '/app/automacoes': typeof AppAutomacoesRoute
   '/app/contatos': typeof AppContatosRoute
   '/app/grupos': typeof AppGruposRoute
+  '/app/instancias': typeof AppInstanciasRoute
   '/app/reacoes': typeof AppReacoesRoute
   '/app/': typeof AppIndexRoute
+  '/api/credits/pix': typeof ApiCreditsPixRoute
+  '/api/credits/status': typeof ApiCreditsStatusRoute
+  '/api/mercadopago/webhook': typeof ApiMercadopagoWebhookRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -83,8 +111,12 @@ export interface FileRoutesByTo {
   '/app/automacoes': typeof AppAutomacoesRoute
   '/app/contatos': typeof AppContatosRoute
   '/app/grupos': typeof AppGruposRoute
+  '/app/instancias': typeof AppInstanciasRoute
   '/app/reacoes': typeof AppReacoesRoute
   '/app': typeof AppIndexRoute
+  '/api/credits/pix': typeof ApiCreditsPixRoute
+  '/api/credits/status': typeof ApiCreditsStatusRoute
+  '/api/mercadopago/webhook': typeof ApiMercadopagoWebhookRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -95,8 +127,12 @@ export interface FileRoutesById {
   '/app/automacoes': typeof AppAutomacoesRoute
   '/app/contatos': typeof AppContatosRoute
   '/app/grupos': typeof AppGruposRoute
+  '/app/instancias': typeof AppInstanciasRoute
   '/app/reacoes': typeof AppReacoesRoute
   '/app/': typeof AppIndexRoute
+  '/api/credits/pix': typeof ApiCreditsPixRoute
+  '/api/credits/status': typeof ApiCreditsStatusRoute
+  '/api/mercadopago/webhook': typeof ApiMercadopagoWebhookRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -108,8 +144,12 @@ export interface FileRouteTypes {
     | '/app/automacoes'
     | '/app/contatos'
     | '/app/grupos'
+    | '/app/instancias'
     | '/app/reacoes'
     | '/app/'
+    | '/api/credits/pix'
+    | '/api/credits/status'
+    | '/api/mercadopago/webhook'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -118,8 +158,12 @@ export interface FileRouteTypes {
     | '/app/automacoes'
     | '/app/contatos'
     | '/app/grupos'
+    | '/app/instancias'
     | '/app/reacoes'
     | '/app'
+    | '/api/credits/pix'
+    | '/api/credits/status'
+    | '/api/mercadopago/webhook'
   id:
     | '__root__'
     | '/'
@@ -129,8 +173,12 @@ export interface FileRouteTypes {
     | '/app/automacoes'
     | '/app/contatos'
     | '/app/grupos'
+    | '/app/instancias'
     | '/app/reacoes'
     | '/app/'
+    | '/api/credits/pix'
+    | '/api/credits/status'
+    | '/api/mercadopago/webhook'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -138,6 +186,9 @@ export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   CadastroRoute: typeof CadastroRoute
   LoginRoute: typeof LoginRoute
+  ApiCreditsPixRoute: typeof ApiCreditsPixRoute
+  ApiCreditsStatusRoute: typeof ApiCreditsStatusRoute
+  ApiMercadopagoWebhookRoute: typeof ApiMercadopagoWebhookRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -198,12 +249,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppGruposRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/instancias': {
+      id: '/app/instancias'
+      path: '/instancias'
+      fullPath: '/app/instancias'
+      preLoaderRoute: typeof AppInstanciasRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/reacoes': {
       id: '/app/reacoes'
       path: '/reacoes'
       fullPath: '/app/reacoes'
       preLoaderRoute: typeof AppReacoesRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/api/credits/pix': {
+      id: '/api/credits/pix'
+      path: '/api/credits/pix'
+      fullPath: '/api/credits/pix'
+      preLoaderRoute: typeof ApiCreditsPixRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/credits/status': {
+      id: '/api/credits/status'
+      path: '/api/credits/status'
+      fullPath: '/api/credits/status'
+      preLoaderRoute: typeof ApiCreditsStatusRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mercadopago/webhook': {
+      id: '/api/mercadopago/webhook'
+      path: '/api/mercadopago/webhook'
+      fullPath: '/api/mercadopago/webhook'
+      preLoaderRoute: typeof ApiMercadopagoWebhookRouteImport
+      parentRoute: typeof rootRouteImport
     }
   }
 }
@@ -212,6 +291,7 @@ interface AppRouteChildren {
   AppAutomacoesRoute: typeof AppAutomacoesRoute
   AppContatosRoute: typeof AppContatosRoute
   AppGruposRoute: typeof AppGruposRoute
+  AppInstanciasRoute: typeof AppInstanciasRoute
   AppReacoesRoute: typeof AppReacoesRoute
   AppIndexRoute: typeof AppIndexRoute
 }
@@ -220,6 +300,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAutomacoesRoute: AppAutomacoesRoute,
   AppContatosRoute: AppContatosRoute,
   AppGruposRoute: AppGruposRoute,
+  AppInstanciasRoute: AppInstanciasRoute,
   AppReacoesRoute: AppReacoesRoute,
   AppIndexRoute: AppIndexRoute,
 }
@@ -231,6 +312,9 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   CadastroRoute: CadastroRoute,
   LoginRoute: LoginRoute,
+  ApiCreditsPixRoute: ApiCreditsPixRoute,
+  ApiCreditsStatusRoute: ApiCreditsStatusRoute,
+  ApiMercadopagoWebhookRoute: ApiMercadopagoWebhookRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

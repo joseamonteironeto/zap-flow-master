@@ -13,6 +13,7 @@ import {
   Settings,
   Shield,
   ShieldBan,
+  Smartphone,
   Smile,
   Users,
 } from "lucide-react";
@@ -29,8 +30,8 @@ type NavItem = {
 
 export const NAV: NavItem[] = [
   { label: "Visão Geral", icon: Gauge, to: "/app" },
+  { label: "Instâncias", icon: Smartphone, to: "/app/instancias" },
   { label: "Grupos", icon: Users, to: "/app/grupos" },
-  { label: "Contatos", icon: Contact, to: "/app/contatos" },
   { label: "Reações", icon: Smile, to: "/app/reacoes" },
   { label: "Automações", icon: Bot, to: "/app/automacoes" },
   { label: "Fiscal", icon: Shield, to: "/app/fiscal" },
@@ -44,6 +45,7 @@ export const NAV: NavItem[] = [
     ],
   },
   { label: "Respostas Automáticas", icon: MessageSquare, to: "/app/respostas" },
+  { label: "Contatos", icon: Contact, to: "/app/contatos" },
   { label: "CRM", icon: Layers, to: "/app/crm" },
   { label: "Relatórios", icon: BarChart3, to: "/app/relatorios" },
   { label: "Equipe", icon: Building2, to: "/app/equipe" },
