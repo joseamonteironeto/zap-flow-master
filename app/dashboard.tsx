@@ -11,6 +11,7 @@ import {
   CircleAlert,
   Copy,
   ExternalLink,
+  FlaskConical,
   Link2,
   LoaderCircle,
   MessageCircleMore,
@@ -28,6 +29,7 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { Toaster } from "@/components/ui/sonner";
 
 type Group = {
@@ -56,6 +58,18 @@ type AffiliateSettings = {
   redirectDomain: string;
   amazonEnabled: boolean;
   mercadoLivreEnabled: boolean;
+};
+
+type MercadoLivreTestResult = {
+  ok: boolean;
+  upstreamStatus?: number;
+  message: string;
+  results?: Array<{
+    originUrl: string;
+    shortUrl: string;
+    longUrl: string;
+    created: boolean;
+  }>;
 };
 
 type ModelContext = {
@@ -107,6 +121,9 @@ export default function Dashboard() {
   const [error, setError] = useState("");
   const [demo, setDemo] = useState(false);
   const [testUrl, setTestUrl] = useState("https://www.amazon.com.br/dp/B0D1234567");
+  const [mlTestUrls, setMlTestUrls] = useState("https://produto.mercadolivre.com.br/MLB-1010954920");
+  const [mlTestLoading, setMlTestLoading] = useState(false);
+  const [mlTestResult, setMlTestResult] = useState<MercadoLivreTestResult | null>(null);
 
   async function loadData() {
     setLoading(true);
@@ -237,6 +254,32 @@ export default function Dashboard() {
       toast.error("Não foi possível salvar as configurações.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function testMercadoLivreRequest() {
+    const urls = mlTestUrls.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+    if (!urls.length) {
+      toast.error("Cole pelo menos um link de produto.");
+      return;
+    }
+    setMlTestLoading(true);
+    setMlTestResult(null);
+    try {
+      const response = await fetch("/api/affiliate/mercadolivre/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urls, tag: affiliate.mercadoLivreLabel.trim() || "promozap" }),
+      });
+      const result = await response.json() as MercadoLivreTestResult;
+      setMlTestResult(result);
+      if (result.ok) toast.success("O Mercado Livre gerou o link pelo request.");
+      else toast.warning("O teste chegou ao Mercado Livre, mas a sessão foi exigida.");
+    } catch {
+      setMlTestResult({ ok: false, message: "O painel não conseguiu concluir o teste agora." });
+      toast.error("Não foi possível executar o teste.");
+    } finally {
+      setMlTestLoading(false);
     }
   }
 
@@ -412,6 +455,45 @@ export default function Dashboard() {
                       <p className="mt-2 break-all text-sm leading-6 text-[#7cff94]">{convertedAmazonUrl || "Informe um ASIN válido e seu Tracking ID."}</p>
                     </div>
                     {convertedAmazonUrl && <Button variant="outline" onClick={() => { void navigator.clipboard.writeText(convertedAmazonUrl); toast.success("Link copiado."); }} className="h-11 w-full border-white/15 bg-white/8 text-white hover:bg-white/14"><Copy /> Copiar resultado</Button>}
+                  </CardContent>
+                </Card>
+
+                <Card className="h-fit border-[#ebd76a] bg-[#fff7c8] text-[#2e2908] shadow-[0_14px_40px_rgba(90,72,0,.12)] xl:col-start-2">
+                  <CardHeader>
+                    <div className="mb-2 flex size-10 items-center justify-center rounded-xl bg-[#ffe600]"><FlaskConical className="size-5" /></div>
+                    <CardTitle className="text-lg">Laboratório Mercado Livre</CardTitle>
+                    <CardDescription className="text-[#6f641c]">Teste o endpoint encontrado no Gerador de Links. Um produto por linha.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <Textarea
+                      value={mlTestUrls}
+                      onChange={(event) => setMlTestUrls(event.target.value)}
+                      rows={5}
+                      placeholder="https://produto.mercadolivre.com.br/MLB-..."
+                      className="min-h-32 resize-y rounded-xl border-[#d9c75e] bg-white text-[#171505]"
+                    />
+                    <div className="rounded-xl border border-[#ddcb62] bg-white/70 px-3 py-2 text-xs leading-5 text-[#665b16]">
+                      Etiqueta enviada: <strong>{affiliate.mercadoLivreLabel.trim() || "promozap"}</strong>. O teste não recebe nem armazena cookies do Mercado Livre.
+                    </div>
+                    <Button onClick={() => void testMercadoLivreRequest()} disabled={mlTestLoading} className="h-12 w-full rounded-xl bg-[#2e2908] text-white hover:bg-[#474015]">
+                      {mlTestLoading ? <LoaderCircle className="animate-spin" /> : <FlaskConical />} Testar request direto
+                    </Button>
+                    {mlTestResult && (
+                      <div className={`rounded-xl border p-4 ${mlTestResult.ok ? "border-[#8fd9a5] bg-[#effbf2]" : "border-[#e4b5a8] bg-[#fff3ef]"}`}>
+                        <p className="text-sm font-bold">{mlTestResult.ok ? "Request aceito" : `Request bloqueado${mlTestResult.upstreamStatus ? ` · HTTP ${mlTestResult.upstreamStatus}` : ""}`}</p>
+                        <p className="mt-1 text-xs leading-5 opacity-75">{mlTestResult.message}</p>
+                        {mlTestResult.results?.map((item) => (
+                          <div key={item.originUrl} className="mt-3 rounded-lg border border-black/8 bg-white p-3">
+                            <p className="break-all text-xs text-[#6b6b58]">{item.originUrl}</p>
+                            <a href={item.shortUrl} target="_blank" rel="noreferrer" className="mt-2 block break-all text-sm font-bold text-[#087c39] underline underline-offset-2">{item.shortUrl}</a>
+                            <Button variant="outline" size="sm" onClick={() => { void navigator.clipboard.writeText(item.longUrl || item.shortUrl); toast.success("Link copiado."); }} className="mt-3 rounded-lg bg-white"><Copy /> Copiar link completo</Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <Button asChild variant="outline" className="h-11 w-full rounded-xl border-[#c9b94f] bg-white/80">
+                      <a href="https://www.mercadolivre.com.br/afiliados/linkbuilder#hub" target="_blank" rel="noreferrer"><ExternalLink /> Abrir gerador oficial</a>
+                    </Button>
                   </CardContent>
                 </Card>
               </div>
