@@ -20,10 +20,13 @@ import {
   LoaderCircle,
   Moon,
   MessageCircleMore,
+  PackageSearch,
   RefreshCw,
   Search,
+  Send,
   Settings2,
   ShieldCheck,
+  ShoppingBag,
   Smartphone,
   Sun,
   UsersRound,
@@ -86,6 +89,26 @@ type MercadoLivreTestResult = {
   }>;
 };
 
+type ProductRecord = {
+  id: string;
+  store: "amazon" | "mercadolivre" | "unknown";
+  productCode?: string | null;
+  title?: string | null;
+  imageUrl?: string | null;
+  sourceUrl: string;
+  resolvedUrl?: string | null;
+  affiliateUrl?: string | null;
+  status: "found" | "converted" | "waiting_credentials" | "unsupported" | "error" | "sent";
+  sourceGroup?: string | null;
+  destinationGroup?: string | null;
+  redirectCount: number;
+  occurrences: number;
+  errorMessage?: string | null;
+  foundAt: string;
+  lastSeenAt: string;
+  sentAt?: string | null;
+};
+
 type ModelContext = {
   registerTool: (tool: {
     name: string;
@@ -130,6 +153,26 @@ function roleLabel(role: Role) {
   return "Ignorar";
 }
 
+function productStatusLabel(status: ProductRecord["status"]) {
+  return ({
+    found: "Identificado",
+    converted: "Convertido",
+    waiting_credentials: "Aguardando sessão",
+    unsupported: "Não reconhecido",
+    error: "Erro",
+    sent: "Enviado",
+  } as const)[status];
+}
+
+function productStatusClass(status: ProductRecord["status"]) {
+  if (status === "sent") return "border-[#2d8a4b] bg-[#153520] text-[#8af3a5]";
+  if (status === "converted") return "border-[#2b6840] bg-[#102a19] text-[#62ef8b]";
+  if (status === "waiting_credentials") return "border-[#725f22] bg-[#2a230c] text-[#f4d35e]";
+  if (status === "unsupported") return "border-[#4c5650] bg-[#202622] text-[#c0c9c3]";
+  if (status === "error") return "border-[#764239] bg-[#2a1612] text-[#ff9b92]";
+  return "border-[#365044] bg-[#17231c] text-[#b2c9ba]";
+}
+
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("groups");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -153,6 +196,13 @@ export default function Dashboard() {
   const [mlCookiesVisible, setMlCookiesVisible] = useState(false);
   const [mlTestLoading, setMlTestLoading] = useState(false);
   const [mlTestResult, setMlTestResult] = useState<MercadoLivreTestResult | null>(null);
+  const [products, setProducts] = useState<ProductRecord[]>([]);
+  const [productTotals, setProductTotals] = useState<Record<string, number>>({});
+  const [productInput, setProductInput] = useState("");
+  const [productSearch, setProductSearch] = useState("");
+  const [productStatus, setProductStatus] = useState("all");
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [productResolving, setProductResolving] = useState(false);
 
   async function loadData() {
     setLoading(true);
@@ -288,6 +338,11 @@ export default function Dashboard() {
     { value: stats.destinations, label: "meus grupos", Icon: MessageCircleMore },
     { value: stats.routes, label: "rotas prontas", Icon: ArrowRight },
   ];
+  const productStatItems = [
+    { value: products.length, label: "produtos no histórico", Icon: PackageSearch },
+    { value: productTotals.converted || 0, label: "links convertidos", Icon: Link2 },
+    { value: productTotals.sent || 0, label: "ofertas enviadas", Icon: Send },
+  ];
 
   const convertedAmazonUrl = useMemo(() => {
     const asin = testUrl.match(/\/(?:dp|gp\/product|gp\/aw\/d)\/([A-Z0-9]{10})(?:[/?]|$)/i)?.[1]?.toUpperCase();
@@ -355,6 +410,64 @@ export default function Dashboard() {
     }
   }
 
+  async function loadProducts() {
+    setProductsLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (productStatus !== "all") params.set("status", productStatus);
+      if (productSearch.trim()) params.set("search", productSearch.trim());
+      const response = await fetch(`/api/products?${params.toString()}`);
+      const result = await response.json() as { products?: ProductRecord[]; totals?: Record<string, number>; error?: string };
+      if (!response.ok) throw new Error(result.error || "Não foi possível carregar os produtos.");
+      setProducts(result.products || []);
+      setProductTotals(result.totals || {});
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "Não foi possível carregar os produtos.");
+    } finally {
+      setProductsLoading(false);
+    }
+  }
+
+  async function analyzeProductLinks() {
+    if (!productInput.trim()) {
+      toast.error("Cole uma mensagem ou um link para analisar.");
+      return;
+    }
+    setProductResolving(true);
+    try {
+      const response = await fetch("/api/products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input: productInput, cookies: mlSessionCookies }),
+      });
+      const result = await response.json() as { products?: ProductRecord[]; error?: string };
+      if (!response.ok) throw new Error(result.error || "Não foi possível analisar o link.");
+      const converted = (result.products || []).filter((item) => item.status === "converted").length;
+      toast.success(`${result.products?.length || 0} link(s) analisado(s)${converted ? ` · ${converted} convertido(s)` : ""}.`);
+      setProductInput("");
+      await loadProducts();
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "Não foi possível analisar o link.");
+    } finally {
+      setProductResolving(false);
+    }
+  }
+
+  async function markProductSent(id: string) {
+    try {
+      const response = await fetch("/api/products", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status: "sent" }) });
+      if (!response.ok) throw new Error();
+      toast.success("Produto marcado como enviado.");
+      await loadProducts();
+    } catch {
+      toast.error("Não foi possível atualizar o produto.");
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === "products") void loadProducts();
+  }, [activeTab, productStatus]);
+
   async function testWhatsappConnection() {
     if (!whatsapp.serverUrl.trim() || !whatsapp.instanceToken.trim()) {
       toast.error("Informe a URL e o token da instância.");
@@ -384,6 +497,7 @@ export default function Dashboard() {
 
   const pageMeta = {
     groups: ["Grupos", "Organize fontes, destinos e categorias da operação."],
+    products: ["Produtos encontrados", "Acompanhe cada link identificado, convertido e enviado."],
     affiliates: ["Afiliados", "Defina como os links encontrados serão convertidos."],
     mercadolivre: ["Gerador Mercado Livre", "Gere links com sua tag e sua sessão de afiliado."],
     automation: ["Automação", "Acompanhe o fluxo das ofertas entre os grupos."],
@@ -402,6 +516,7 @@ export default function Dashboard() {
             <nav className="flex-1 space-y-1 overflow-y-auto p-3 text-sm">
               {[
                 ["groups", "Grupos", UsersRound],
+                ["products", "Produtos", PackageSearch],
                 ["affiliates", "Afiliados", Link2],
                 ["mercadolivre", "Gerador ML", KeyRound],
                 ["automation", "Automação", Bot],
@@ -441,7 +556,7 @@ export default function Dashboard() {
             </div>
 
           <div className="mb-6 grid grid-cols-3 overflow-hidden rounded-2xl border border-[#27322b] bg-[#0b100d] shadow-[0_18px_50px_rgba(0,0,0,.28)]">
-            {statItems.map(({ value, label, Icon }, index) => (
+            {(activeTab === "products" ? productStatItems : statItems).map(({ value, label, Icon }, index) => (
               <div key={label} className={`px-3 py-4 sm:px-5 ${index ? "border-l border-[#27322b]" : ""}`}>
                 <Icon className="mb-2 size-4 text-[#00a947]" />
                 <p className="text-2xl font-extrabold tracking-tight">{value}</p>
@@ -456,6 +571,7 @@ export default function Dashboard() {
           <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-5">
             <TabsList className="h-12 w-full justify-start overflow-x-auto rounded-xl border border-[#27322b] bg-[#0b100d] p-1 lg:hidden">
               <TabsTrigger value="groups" className="h-10 min-w-28 rounded-lg px-4">Grupos</TabsTrigger>
+              <TabsTrigger value="products" className="h-10 min-w-28 rounded-lg px-4">Produtos</TabsTrigger>
               <TabsTrigger value="affiliates" className="h-10 min-w-28 rounded-lg px-4">Afiliados</TabsTrigger>
               <TabsTrigger value="mercadolivre" className="h-10 min-w-32 rounded-lg px-4 data-[state=active]:bg-[#ffe600] data-[state=active]:text-[#231f00]">Gerador ML</TabsTrigger>
               <TabsTrigger value="automation" className="h-10 min-w-28 rounded-lg px-4">Automação</TabsTrigger>
@@ -523,6 +639,72 @@ export default function Dashboard() {
               </Card>
               <div className="mt-4 flex justify-end">
                 <Button onClick={() => void saveGroups()} disabled={saving} className="h-12 w-full rounded-xl bg-[#00c853] px-6 text-[#04140a] shadow-[0_10px_30px_rgba(0,200,83,.28)] hover:bg-[#16dc61] sm:w-auto">{saving ? <LoaderCircle className="animate-spin" /> : <Check />} Salvar organização</Button>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="products" id="produtos">
+              <div className="grid gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
+                <Card className="h-fit border-[#27322b] bg-[#0b100d] shadow-none xl:sticky xl:top-24">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-lg"><PackageSearch className="size-5 text-[#62ef8b]" /> Resolver um link</CardTitle>
+                    <CardDescription>Cole a mensagem inteira. O painel percorre os redirecionamentos e procura Amazon ou Mercado Livre.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <Textarea value={productInput} onChange={(event) => setProductInput(event.target.value)} rows={7} placeholder={"Ex.: Oferta encontrada!\nhttps://amzn.to/...\nou https://promoby.me/..."} className="min-h-40 resize-y rounded-xl border-[#34423a] bg-[#080c09]" />
+                    <Button onClick={() => void analyzeProductLinks()} disabled={productResolving} className="h-12 w-full rounded-xl bg-[#00c853] font-bold text-[#04140a] hover:bg-[#16dc61]">{productResolving ? <LoaderCircle className="animate-spin" /> : <PackageSearch />} Identificar e converter</Button>
+                    <div className="rounded-xl border border-[#244c31] bg-[#0d1d12] p-3 text-sm leading-6 text-[#a7cbb2]">
+                      Links de outras lojas são registrados sem alteração. No Mercado Livre, a conversão usa a sessão salva neste navegador.
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <div className="min-w-0 space-y-4">
+                  <Card className="border-[#27322b] bg-[#0b100d] shadow-none">
+                    <CardContent className="grid gap-3 p-4 sm:grid-cols-[minmax(0,1fr)_210px_auto]">
+                      <div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#718079]" /><Input value={productSearch} onChange={(event) => setProductSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void loadProducts(); }} placeholder="Buscar produto, código ou link" className="h-11 rounded-xl border-[#34423a] bg-[#080c09] pl-10" /></div>
+                      <NativeSelect value={productStatus} onChange={(event) => setProductStatus(event.target.value)} className="h-11 w-full rounded-xl border-[#34423a] bg-[#080c09]">
+                        <NativeSelectOption value="all">Todos os status</NativeSelectOption>
+                        <NativeSelectOption value="converted">Convertidos</NativeSelectOption>
+                        <NativeSelectOption value="sent">Enviados</NativeSelectOption>
+                        <NativeSelectOption value="waiting_credentials">Aguardando sessão</NativeSelectOption>
+                        <NativeSelectOption value="unsupported">Não reconhecidos</NativeSelectOption>
+                        <NativeSelectOption value="error">Com erro</NativeSelectOption>
+                      </NativeSelect>
+                      <Button onClick={() => void loadProducts()} variant="outline" className="h-11 rounded-xl border-[#34423a] bg-[#111813] text-white hover:bg-[#19231c]"><RefreshCw className={productsLoading ? "animate-spin" : ""} /> Atualizar</Button>
+                    </CardContent>
+                  </Card>
+
+                  {productsLoading && products.length === 0 ? (
+                    <Card className="border-[#27322b] bg-[#0b100d] shadow-none"><CardContent className="flex min-h-56 items-center justify-center gap-3 text-sm text-[#94a69b]"><LoaderCircle className="size-5 animate-spin text-[#62ef8b]" /> Carregando histórico...</CardContent></Card>
+                  ) : products.length === 0 ? (
+                    <Card className="border-[#27322b] bg-[#0b100d] shadow-none"><CardContent className="flex min-h-64 flex-col items-center justify-center px-6 text-center"><PackageSearch className="mb-3 size-9 text-[#567061]" /><p className="font-semibold">Nenhum produto encontrado ainda</p><p className="mt-2 max-w-md text-sm leading-6 text-[#94a69b]">Cole uma mensagem ao lado para testar. Os produtos capturados pela automação aparecerão neste mesmo histórico.</p></CardContent></Card>
+                  ) : products.map((product) => (
+                    <Card key={product.id} className="overflow-hidden border-[#27322b] bg-[#0b100d] shadow-none">
+                      <CardContent className="p-0">
+                        <div className="grid gap-4 p-4 sm:grid-cols-[56px_minmax(0,1fr)_auto] sm:p-5">
+                          <div className={`grid size-14 place-items-center rounded-xl font-extrabold ${product.store === "amazon" ? "bg-[#ff9900] text-[#231500]" : product.store === "mercadolivre" ? "bg-[#ffe600] text-[#231f00]" : "bg-[#252d28] text-[#aeb9b1]"}`}>
+                            {product.store === "amazon" ? "a" : product.store === "mercadolivre" ? "ML" : <ShoppingBag className="size-5" />}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="min-w-0 truncate font-bold">{product.title || product.productCode || "Produto não reconhecido"}</p>
+                              <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${productStatusClass(product.status)}`}>{productStatusLabel(product.status)}</span>
+                            </div>
+                            <p className="mt-1 text-xs text-[#94a69b]">{product.store === "amazon" ? "Amazon" : product.store === "mercadolivre" ? "Mercado Livre" : "Outra loja"}{product.productCode ? ` · ${product.productCode}` : ""} · {product.redirectCount} redirecionamento(s)</p>
+                            <p className="mt-3 truncate text-sm text-[#a7b3ab]" title={product.sourceUrl}>{product.sourceUrl}</p>
+                            {product.affiliateUrl && <a href={product.affiliateUrl} target="_blank" rel="noreferrer" className="mt-2 block truncate text-sm font-semibold text-[#62ef8b] underline decoration-[#3e714c] underline-offset-4">{product.affiliateUrl}</a>}
+                            {product.errorMessage && <p className="mt-2 text-sm leading-6 text-[#d9ad75]">{product.errorMessage}</p>}
+                            <p className="mt-3 text-xs text-[#738078]">Encontrado {new Date(product.lastSeenAt).toLocaleString("pt-BR")} · {product.occurrences} ocorrência(s)</p>
+                          </div>
+                          <div className="flex gap-2 sm:flex-col">
+                            {(product.affiliateUrl || product.resolvedUrl) && <Button variant="outline" size="sm" onClick={() => { void navigator.clipboard.writeText(product.affiliateUrl || product.resolvedUrl || product.sourceUrl); toast.success("Link copiado."); }} className="rounded-lg border-[#34423a] bg-[#111813] text-white hover:bg-[#19231c]"><Copy /> Copiar</Button>}
+                            {product.status === "converted" && <Button size="sm" onClick={() => void markProductSent(product.id)} className="rounded-lg bg-[#00c853] text-[#04140a] hover:bg-[#16dc61]"><Send /> Marcar enviado</Button>}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
               </div>
             </TabsContent>
 

@@ -19,3 +19,26 @@ export const affiliateSettings = sqliteTable("affiliate_settings", {
   mercadoLivreEnabled: integer("mercado_livre_enabled", { mode: "boolean" }).notNull().default(false),
   updatedAt: text("updated_at").notNull(),
 });
+
+export const productEvents = sqliteTable("product_events", {
+  id: text("id").primaryKey(),
+  fingerprint: text("fingerprint").notNull().unique(),
+  store: text("store").notNull().default("unknown"),
+  productCode: text("product_code"),
+  title: text("title"),
+  imageUrl: text("image_url"),
+  sourceUrl: text("source_url").notNull(),
+  resolvedUrl: text("resolved_url"),
+  affiliateUrl: text("affiliate_url"),
+  status: text("status").notNull().default("found"),
+  sourceGroup: text("source_group"),
+  destinationGroup: text("destination_group"),
+  messageExcerpt: text("message_excerpt"),
+  redirectCount: integer("redirect_count").notNull().default(0),
+  occurrences: integer("occurrences").notNull().default(1),
+  errorMessage: text("error_message"),
+  foundAt: text("found_at").notNull(),
+  lastSeenAt: text("last_seen_at").notNull(),
+  sentAt: text("sent_at"),
+  updatedAt: text("updated_at").notNull(),
+});
