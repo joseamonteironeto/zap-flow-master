@@ -7,37 +7,37 @@
 @utility scrollbar-gutter-stable { scrollbar-gutter: stable; }
 
 :root {
-  --background: #f4f8f5;
-  --foreground: #071416;
-  --card: #ffffff;
-  --card-foreground: #071416;
-  --popover: #ffffff;
-  --popover-foreground: #071416;
+  --background: #030504;
+  --foreground: #f4fff6;
+  --card: #0b100d;
+  --card-foreground: #f4fff6;
+  --popover: #0b100d;
+  --popover-foreground: #f4fff6;
   --primary: #00c853;
   --primary-foreground: #04140a;
-  --secondary: #e9f9ee;
-  --secondary-foreground: #087c39;
-  --muted: #edf4ef;
-  --muted-foreground: #66736c;
-  --accent: #e9f9ee;
-  --accent-foreground: #087c39;
+  --secondary: #142219;
+  --secondary-foreground: #72f295;
+  --muted: #151b17;
+  --muted-foreground: #94a69b;
+  --accent: #16251b;
+  --accent-foreground: #72f295;
   --destructive: #e5484d;
-  --border: #dce7df;
-  --input: #dce7df;
+  --border: #27322b;
+  --input: #34423a;
   --ring: #00a947;
   --chart-1: #00c853;
   --chart-2: #008f3d;
-  --chart-3: #071416;
+  --chart-3: #f4fff6;
   --chart-4: #f5b700;
   --chart-5: #25e83f;
   --radius: 0.8rem;
-  --sidebar: #071416;
+  --sidebar: #070a08;
   --sidebar-foreground: #ffffff;
   --sidebar-primary: #00c853;
   --sidebar-primary-foreground: #04140a;
   --sidebar-accent: #123026;
   --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #234137;
+  --sidebar-border: #26342c;
   --sidebar-ring: #25e83f;
 }
 
@@ -84,3 +84,33 @@
 body { background: var(--background); color: var(--foreground); font-family: var(--font-sans); }
 button, input, select { font: inherit; }
 ::selection { background: #9cffb4; color: #071416; }
+
+.promozap-dark [class~="bg-white"],
+.promozap-dark [class~="bg-[#f8fbf9]"] { background-color: #0d1310 !important; }
+.promozap-dark [class~="bg-[#f4f8f5]"] { background-color: #030504 !important; }
+.promozap-dark [class~="border-[#dce7df]"],
+.promozap-dark [class~="border-[#e4ece7]"],
+.promozap-dark [class~="border-[#e2eae5]"],
+.promozap-dark [class~="border-[#edf2ee]"] { border-color: #27322b !important; }
+.promozap-dark [class~="text-[#071416]"] { color: #f4fff6 !important; }
+.promozap-dark [class~="text-[#66736c]"],
+.promozap-dark [class~="text-[#526159]"],
+.promozap-dark [class~="text-[#7a8880]"],
+.promozap-dark [class~="text-[#9bad9f]"],
+.promozap-dark [class~="text-[#52705d]"],
+.promozap-dark [class~="text-[#6b6b58]"] { color: #94a69b !important; }
+.promozap-dark [class~="text-[#008f3d]"],
+.promozap-dark [class~="text-[#087c39]"],
+.promozap-dark [class~="text-[#287249]"] { color: #62ef8b !important; }
+.promozap-dark [class~="bg-[#e9f9ee]"],
+.promozap-dark [class~="bg-[#e7f9ed]"],
+.promozap-dark [class~="bg-[#ebfaef]"],
+.promozap-dark [class~="bg-[#effbf2]"] { background-color: #102218 !important; }
+.promozap-dark [class~="bg-[#fff3ef]"] { background-color: #261410 !important; }
+.promozap-dark [class~="bg-amber-50"] { background-color: #241d08 !important; }
+.promozap-dark [class~="bg-red-50"] { background-color: #28100f !important; }
+.promozap-dark .text-amber-900 { color: #f4d35e !important; }
+.promozap-dark .text-red-800 { color: #ff9b92 !important; }
+.promozap-dark input,
+.promozap-dark textarea,
+.promozap-dark select { color: #f4fff6; }

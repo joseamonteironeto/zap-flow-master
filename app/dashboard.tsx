@@ -129,6 +129,7 @@ export default function Dashboard() {
   const [testUrl, setTestUrl] = useState("https://www.amazon.com.br/dp/B0D1234567");
   const [mlTestUrls, setMlTestUrls] = useState("https://produto.mercadolivre.com.br/MLB-1010954920");
   const [mlSessionCookies, setMlSessionCookies] = useState("");
+  const [mlCookiesLoaded, setMlCookiesLoaded] = useState(false);
   const [mlCookiesVisible, setMlCookiesVisible] = useState(false);
   const [mlTestLoading, setMlTestLoading] = useState(false);
   const [mlTestResult, setMlTestResult] = useState<MercadoLivreTestResult | null>(null);
@@ -172,6 +173,18 @@ export default function Dashboard() {
   }
 
   useEffect(() => { void loadData(); }, []);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("promozap.ml.sessionCookies.v1");
+    if (saved) setMlSessionCookies(saved);
+    setMlCookiesLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mlCookiesLoaded) return;
+    if (mlSessionCookies) window.localStorage.setItem("promozap.ml.sessionCookies.v1", mlSessionCookies);
+    else window.localStorage.removeItem("promozap.ml.sessionCookies.v1");
+  }, [mlSessionCookies, mlCookiesLoaded]);
 
   useEffect(() => {
     const context = (document as Document & { modelContext?: ModelContext }).modelContext;
@@ -296,9 +309,9 @@ export default function Dashboard() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f4f8f5] text-[#071416]">
+    <main className="promozap-dark min-h-screen bg-background text-foreground">
       <Toaster position="top-center" richColors />
-      <header className="sticky top-0 z-40 border-b border-black/8 bg-white/95 backdrop-blur">
+      <header className="sticky top-0 z-40 border-b border-white/10 bg-[#070a08]/95 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-[#00c853] shadow-[0_6px_20px_rgba(0,200,83,.22)]">
@@ -306,10 +319,10 @@ export default function Dashboard() {
             </div>
             <div>
               <p className="text-base font-extrabold tracking-[-0.03em]">Promozap</p>
-              <p className="text-xs text-[#66736c]">Operação de grupos</p>
+              <p className="text-xs text-[#94a69b]">Operação de grupos</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 rounded-full border border-[#dce7df] bg-[#f8fbf9] px-3 py-2 text-xs font-semibold text-[#287249]">
+          <div className="flex items-center gap-2 rounded-full border border-[#26342c] bg-[#0d1310] px-3 py-2 text-xs font-semibold text-[#72f295]">
             <span className="h-2 w-2 rounded-full bg-[#00c853] shadow-[0_0_0_4px_rgba(0,200,83,.12)]" />
             WhatsApp conectado
           </div>
@@ -318,7 +331,7 @@ export default function Dashboard() {
 
       <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[230px_minmax(0,1fr)] lg:py-8">
         <aside className="hidden lg:block">
-          <div className="sticky top-24 rounded-2xl bg-[#071416] p-4 text-white shadow-[0_18px_50px_rgba(7,20,22,.16)]">
+          <div className="sticky top-24 rounded-2xl border border-white/8 bg-[#080b09] p-4 text-white shadow-[0_22px_60px_rgba(0,0,0,.42)]">
             <p className="px-2 pb-3 text-xs font-semibold text-white/50">PAINEL PRIVADO</p>
             <nav className="space-y-1 text-sm">
               <button onClick={() => setActiveTab("groups")} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left font-semibold ${activeTab === "groups" ? "bg-white/10 text-white" : "text-white/70 hover:bg-white/7"}`}><UsersRound className={`size-4 ${activeTab === "groups" ? "text-[#25e83f]" : ""}`} /> Grupos</button>
@@ -338,18 +351,18 @@ export default function Dashboard() {
         <section className="min-w-0">
           <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
             <div>
-              <p className="mb-1 text-sm font-semibold text-[#008f3d]">Central de distribuição</p>
+              <p className="mb-1 text-sm font-semibold text-[#52e579]">Central de distribuição</p>
               <h1 className="max-w-2xl text-3xl font-extrabold tracking-[-0.045em] sm:text-4xl">Escolha de onde as ofertas vêm e para onde elas vão.</h1>
             </div>
-            <Button onClick={() => void loadData()} variant="outline" className="h-11 rounded-xl bg-white"><RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} /> Atualizar grupos</Button>
+            <Button onClick={() => void loadData()} variant="outline" className="h-11 rounded-xl border-[#2b3830] bg-[#0d1310] text-white hover:bg-[#162019]"><RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} /> Atualizar grupos</Button>
           </div>
 
-          <div className="mb-6 grid grid-cols-3 overflow-hidden rounded-2xl border border-[#dce7df] bg-white shadow-[0_10px_30px_rgba(7,20,22,.05)]">
+          <div className="mb-6 grid grid-cols-3 overflow-hidden rounded-2xl border border-[#27322b] bg-[#0b100d] shadow-[0_18px_50px_rgba(0,0,0,.28)]">
             {statItems.map(({ value, label, Icon }, index) => (
-              <div key={label} className={`px-3 py-4 sm:px-5 ${index ? "border-l border-[#e4ece7]" : ""}`}>
+              <div key={label} className={`px-3 py-4 sm:px-5 ${index ? "border-l border-[#27322b]" : ""}`}>
                 <Icon className="mb-2 size-4 text-[#00a947]" />
                 <p className="text-2xl font-extrabold tracking-tight">{value}</p>
-                <p className="text-xs text-[#66736c] sm:text-sm">{label}</p>
+                <p className="text-xs text-[#94a69b] sm:text-sm">{label}</p>
               </div>
             ))}
           </div>
@@ -358,7 +371,7 @@ export default function Dashboard() {
           {error && <div className="mb-5 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{error}</span></div>}
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-5">
-            <TabsList className="h-12 w-full justify-start overflow-x-auto rounded-xl border border-[#dce7df] bg-white p-1 sm:w-fit">
+            <TabsList className="h-12 w-full justify-start overflow-x-auto rounded-xl border border-[#27322b] bg-[#0b100d] p-1 sm:w-fit">
               <TabsTrigger value="groups" className="h-10 min-w-28 rounded-lg px-4">Grupos</TabsTrigger>
               <TabsTrigger value="affiliates" className="h-10 min-w-28 rounded-lg px-4">Afiliados</TabsTrigger>
               <TabsTrigger value="mercadolivre" className="h-10 min-w-32 rounded-lg px-4 data-[state=active]:bg-[#ffe600] data-[state=active]:text-[#231f00]">Gerador ML</TabsTrigger>
@@ -484,26 +497,41 @@ export default function Dashboard() {
                   </div>
                   <div className={`flex w-fit items-center gap-2 rounded-full px-3 py-2 text-sm font-bold ${mlTestResult?.connected ? "bg-[#0b6b35] text-white" : "bg-[#231f00]/10 text-[#4c4500]"}`}>
                     <span className={`size-2 rounded-full ${mlTestResult?.connected ? "bg-[#62ef8b]" : "bg-[#8b800e]"}`} />
-                    {mlTestResult?.connected ? "Sessão conectada" : mlSessionCookies ? "Sessão pronta" : "Aguardando cookies"}
+                    {mlTestResult?.connected ? "Sessão conectada" : mlSessionCookies ? "Sessão salva" : "Aguardando cookies"}
                   </div>
                 </div>
               </div>
+
+              {mlTestResult && (
+                <Card className={`mt-5 overflow-hidden ${mlTestResult.ok ? "border-[#287a43] bg-[#0b1710]" : "border-[#784235] bg-[#21110e]"}`}>
+                  <CardHeader className="border-b border-white/8"><CardTitle className="text-lg">{mlTestResult.ok ? "Links gerados" : `Não foi possível gerar${mlTestResult.upstreamStatus ? ` · HTTP ${mlTestResult.upstreamStatus}` : ""}`}</CardTitle><CardDescription>{mlTestResult.message}</CardDescription></CardHeader>
+                  <CardContent className="grid gap-3 pt-5 md:grid-cols-2">
+                    {mlTestResult.results?.map((item) => (
+                      <div key={item.originUrl} className="rounded-xl border border-white/10 bg-[#080c09] p-4">
+                        <p className="break-all text-xs leading-5 text-[#94a69b]">{item.originUrl}</p>
+                        <a href={item.shortUrl} target="_blank" rel="noreferrer" className="mt-3 block break-all text-sm font-bold text-[#62ef8b] underline underline-offset-2">{item.shortUrl}</a>
+                        <Button variant="outline" size="sm" onClick={() => { void navigator.clipboard.writeText(item.longUrl || item.shortUrl); toast.success("Link copiado."); }} className="mt-4 rounded-lg border-[#2b3830] bg-[#111813] text-white hover:bg-[#19231c]"><Copy /> Copiar link completo</Button>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
 
               <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(320px,.72fr)]">
                 <Card className="border-[#dce7df] shadow-[0_10px_30px_rgba(7,20,22,.05)]">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2 text-xl"><Cookie className="size-5 text-[#008f3d]" /> Credenciais da sessão</CardTitle>
-                    <CardDescription>A tag pode ficar salva. Os cookies ficam somente nesta página e são apagados quando ela é fechada.</CardDescription>
+                    <CardDescription>A tag e os cookies ficam salvos automaticamente somente neste navegador.</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-5">
                     <label className="block space-y-2 text-sm font-semibold">Tag de afiliado<Input value={affiliate.mercadoLivreLabel} onChange={(event) => setAffiliate((value) => ({ ...value, mercadoLivreLabel: event.target.value }))} placeholder="promozap" className="h-12 rounded-xl" /></label>
                     <label className="block space-y-2 text-sm font-semibold">
-                      <span className="flex items-center justify-between gap-3"><span>Cookies da sessão</span><button type="button" onClick={() => setMlCookiesVisible((value) => !value)} className="flex items-center gap-1.5 text-xs font-semibold text-[#008f3d] hover:underline">{mlCookiesVisible ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}{mlCookiesVisible ? "Ocultar" : "Mostrar"}</button></span>
-                      <Textarea value={mlSessionCookies} onChange={(event) => { setMlSessionCookies(event.target.value); setMlTestResult(null); }} rows={10} spellCheck={false} placeholder={'Cole aqui o JSON exportado: [{ "domain": "...", "name": "...", "value": "..." }]'} className={`min-h-56 resize-y rounded-xl font-mono text-xs leading-5 ${mlCookiesVisible ? "text-[#071416]" : "text-transparent caret-[#071416] selection:bg-[#bdecca]"}`} />
+                      <span className="flex items-center justify-between gap-3"><span>Cookies da sessão</span><button type="button" onClick={() => setMlCookiesVisible((value) => !value)} className="flex items-center gap-1.5 text-xs font-semibold text-[#62ef8b] hover:underline">{mlCookiesVisible ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}{mlCookiesVisible ? "Ocultar" : "Mostrar"}</button></span>
+                      <Textarea value={mlSessionCookies} onChange={(event) => { setMlSessionCookies(event.target.value); setMlTestResult(null); }} rows={4} spellCheck={false} placeholder={'Cole aqui o JSON exportado: [{ "domain": "...", "name": "...", "value": "..." }]'} className={`min-h-28 max-h-40 resize-y rounded-xl border-[#34423a] bg-[#080c09] font-mono text-xs leading-5 ${mlCookiesVisible ? "text-white" : "text-transparent caret-white selection:bg-[#245f36]"}`} />
                     </label>
-                    <div className="flex gap-2 rounded-xl border border-[#bfe9cc] bg-[#ebfaef] p-3 text-sm leading-6 text-[#356044]"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-[#008f3d]" /><p>Use apenas cookies da sua conta. Eles são enviados ao Mercado Livre somente ao gerar o link e não são salvos no painel.</p></div>
+                    <div className="flex gap-2 rounded-xl border border-[#244c31] bg-[#0d1d12] p-3 text-sm leading-6 text-[#a7cbb2]"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-[#52e579]" /><p>Salvos apenas neste aparelho. O servidor recebe os cookies somente no momento de gerar os links.</p></div>
                     <div className="flex flex-col gap-2 sm:flex-row">
-                      <Button onClick={() => void saveAffiliate()} disabled={saving} variant="outline" className="h-11 rounded-xl bg-white">{saving ? <LoaderCircle className="animate-spin" /> : <BadgeCheck />} Salvar tag</Button>
+                      <Button onClick={() => void saveAffiliate()} disabled={saving} variant="outline" className="h-11 rounded-xl border-[#2b3830] bg-[#111813] text-white hover:bg-[#19231c]">{saving ? <LoaderCircle className="animate-spin" /> : <BadgeCheck />} Salvar tag</Button>
                       {mlSessionCookies && <Button onClick={() => { setMlSessionCookies(""); setMlTestResult(null); }} variant="ghost" className="h-11 rounded-xl text-[#8b2e1b]">Limpar sessão</Button>}
                     </div>
                   </CardContent>
@@ -518,20 +546,6 @@ export default function Dashboard() {
                   </CardContent>
                 </Card>
 
-                {mlTestResult && (
-                  <Card className={`xl:col-span-2 ${mlTestResult.ok ? "border-[#8fd9a5] bg-[#effbf2]" : "border-[#e4b5a8] bg-[#fff3ef]"}`}>
-                    <CardHeader><CardTitle className="text-lg">{mlTestResult.ok ? "Links gerados" : `Não foi possível gerar${mlTestResult.upstreamStatus ? ` · HTTP ${mlTestResult.upstreamStatus}` : ""}`}</CardTitle><CardDescription>{mlTestResult.message}</CardDescription></CardHeader>
-                    <CardContent className="grid gap-3 md:grid-cols-2">
-                      {mlTestResult.results?.map((item) => (
-                        <div key={item.originUrl} className="rounded-xl border border-black/8 bg-white p-4">
-                          <p className="break-all text-xs leading-5 text-[#6b756e]">{item.originUrl}</p>
-                          <a href={item.shortUrl} target="_blank" rel="noreferrer" className="mt-3 block break-all text-sm font-bold text-[#087c39] underline underline-offset-2">{item.shortUrl}</a>
-                          <Button variant="outline" size="sm" onClick={() => { void navigator.clipboard.writeText(item.longUrl || item.shortUrl); toast.success("Link copiado."); }} className="mt-4 rounded-lg bg-white"><Copy /> Copiar link completo</Button>
-                        </div>
-                      ))}
-                    </CardContent>
-                  </Card>
-                )}
               </div>
             </TabsContent>
 
