@@ -6,6 +6,7 @@ import {
   Activity,
   ArrowRight,
   BadgeCheck,
+  Bell,
   Bot,
   Check,
   CircleAlert,
@@ -22,6 +23,7 @@ import {
   Search,
   Settings2,
   ShieldCheck,
+  Smartphone,
   UsersRound,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -61,6 +63,11 @@ type AffiliateSettings = {
   redirectDomain: string;
   amazonEnabled: boolean;
   mercadoLivreEnabled: boolean;
+};
+
+type WhatsAppSettings = {
+  serverUrl: string;
+  instanceToken: string;
 };
 
 type MercadoLivreTestResult = {
@@ -106,6 +113,11 @@ const emptyAffiliate: AffiliateSettings = {
   mercadoLivreEnabled: false,
 };
 
+const emptyWhatsApp: WhatsAppSettings = {
+  serverUrl: "https://free.uazapi.com",
+  instanceToken: "",
+};
+
 function initials(name: string) {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
 }
@@ -121,6 +133,11 @@ export default function Dashboard() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [configs, setConfigs] = useState<Record<string, GroupConfig>>({});
   const [affiliate, setAffiliate] = useState<AffiliateSettings>(emptyAffiliate);
+  const [whatsapp, setWhatsapp] = useState<WhatsAppSettings>(emptyWhatsApp);
+  const [whatsappLoaded, setWhatsappLoaded] = useState(false);
+  const [whatsappTesting, setWhatsappTesting] = useState(false);
+  const [whatsappTokenVisible, setWhatsappTokenVisible] = useState(false);
+  const [whatsappConnected, setWhatsappConnected] = useState(false);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -138,12 +155,15 @@ export default function Dashboard() {
     setLoading(true);
     setError("");
     try {
+      const groupsRequest = whatsapp.instanceToken.trim()
+        ? fetch("/api/groups", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ serverUrl: whatsapp.serverUrl, token: whatsapp.instanceToken, search }) })
+        : fetch("/api/groups");
       const [groupsResponse, configResponse, affiliateResponse] = await Promise.all([
-        fetch("/api/groups"),
+        groupsRequest,
         fetch("/api/config"),
         fetch("/api/affiliate"),
       ]);
-      const groupsData = await groupsResponse.json() as { groups?: Group[]; demo?: boolean; error?: string };
+      const groupsData = await groupsResponse.json() as { groups?: Group[]; demo?: boolean; connected?: boolean; error?: string };
       const configData = await configResponse.json() as { configs?: GroupConfig[] };
       const affiliateData = await affiliateResponse.json() as { settings?: Partial<AffiliateSettings> };
       if (!groupsResponse.ok) throw new Error(groupsData.error || "Não foi possível carregar os grupos.");
@@ -162,17 +182,32 @@ export default function Dashboard() {
         };
       }
       setGroups(nextGroups);
+      setWhatsappConnected(Boolean(groupsData.connected));
       setConfigs(merged);
       setAffiliate({ ...emptyAffiliate, ...(affiliateData.settings || {}), amazonEnabled: Boolean(affiliateData.settings?.amazonEnabled ?? true), mercadoLivreEnabled: Boolean(affiliateData.settings?.mercadoLivreEnabled) });
       setDemo(Boolean(groupsData.demo));
     } catch (caught) {
+      setWhatsappConnected(false);
       setError(caught instanceof Error ? caught.message : "Não foi possível carregar o painel.");
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => { void loadData(); }, []);
+  useEffect(() => {
+    const saved = window.localStorage.getItem("promozap.whatsapp.settings.v1");
+    if (saved) {
+      try { setWhatsapp({ ...emptyWhatsApp, ...JSON.parse(saved) as Partial<WhatsAppSettings> }); } catch {}
+    }
+    setWhatsappLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!whatsappLoaded) return;
+    window.localStorage.setItem("promozap.whatsapp.settings.v1", JSON.stringify(whatsapp));
+  }, [whatsapp, whatsappLoaded]);
+
+  useEffect(() => { if (whatsappLoaded) void loadData(); }, [whatsappLoaded]);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("promozap.ml.sessionCookies.v1");
@@ -308,54 +343,89 @@ export default function Dashboard() {
     }
   }
 
+  async function testWhatsappConnection() {
+    if (!whatsapp.serverUrl.trim() || !whatsapp.instanceToken.trim()) {
+      toast.error("Informe a URL e o token da instância.");
+      return;
+    }
+    setWhatsappTesting(true);
+    try {
+      const response = await fetch("/api/groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ serverUrl: whatsapp.serverUrl, token: whatsapp.instanceToken }),
+      });
+      const result = await response.json() as { groups?: Group[]; error?: string };
+      if (!response.ok) throw new Error(result.error || "A conexão foi recusada.");
+      setGroups(result.groups || []);
+      setWhatsappConnected(true);
+      setDemo(false);
+      setError("");
+      toast.success(`UAZAPI conectada: ${(result.groups || []).length} grupo(s) encontrado(s).`);
+    } catch (caught) {
+      setWhatsappConnected(false);
+      toast.error(caught instanceof Error ? caught.message : "Não foi possível conectar à UAZAPI.");
+    } finally {
+      setWhatsappTesting(false);
+    }
+  }
+
+  const pageMeta = {
+    groups: ["Grupos", "Organize fontes, destinos e categorias da operação."],
+    affiliates: ["Afiliados", "Defina como os links encontrados serão convertidos."],
+    mercadolivre: ["Gerador Mercado Livre", "Gere links com sua tag e sua sessão de afiliado."],
+    automation: ["Automação", "Acompanhe o fluxo das ofertas entre os grupos."],
+    whatsapp: ["WhatsApp / UAZAPI", "Conecte a instância usada para ler e publicar nos grupos."],
+  }[activeTab] || ["Painel Promozap", "Operação de grupos de ofertas."];
+
   return (
     <main className="promozap-dark min-h-screen bg-background text-foreground">
       <Toaster position="top-center" richColors />
-      <header className="sticky top-0 z-40 border-b border-white/10 bg-[#070a08]/95 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-[#00c853] shadow-[0_6px_20px_rgba(0,200,83,.22)]">
-              <Image src="/favicon.svg" width={34} height={34} alt="" />
+      <div className="min-h-screen lg:grid lg:grid-cols-[260px_minmax(0,1fr)]">
+        <aside className="hidden border-r border-[#243029] bg-[#070a08] lg:block">
+          <div className="sticky top-0 flex h-screen flex-col">
+            <div className="flex h-[76px] items-center border-b border-[#243029] px-5">
+              <Image src="/promozap-logo.png" width={170} height={57} alt="Promozap" className="h-auto w-[170px] object-contain" priority />
             </div>
-            <div>
-              <p className="text-base font-extrabold tracking-[-0.03em]">Promozap</p>
-              <p className="text-xs text-[#94a69b]">Operação de grupos</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 rounded-full border border-[#26342c] bg-[#0d1310] px-3 py-2 text-xs font-semibold text-[#72f295]">
-            <span className="h-2 w-2 rounded-full bg-[#00c853] shadow-[0_0_0_4px_rgba(0,200,83,.12)]" />
-            WhatsApp conectado
-          </div>
-        </div>
-      </header>
-
-      <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[230px_minmax(0,1fr)] lg:py-8">
-        <aside className="hidden lg:block">
-          <div className="sticky top-24 rounded-2xl border border-white/8 bg-[#080b09] p-4 text-white shadow-[0_22px_60px_rgba(0,0,0,.42)]">
-            <p className="px-2 pb-3 text-xs font-semibold text-white/50">PAINEL PRIVADO</p>
-            <nav className="space-y-1 text-sm">
-              <button onClick={() => setActiveTab("groups")} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left font-semibold ${activeTab === "groups" ? "bg-white/10 text-white" : "text-white/70 hover:bg-white/7"}`}><UsersRound className={`size-4 ${activeTab === "groups" ? "text-[#25e83f]" : ""}`} /> Grupos</button>
-              <button onClick={() => setActiveTab("affiliates")} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left font-semibold ${activeTab === "affiliates" ? "bg-white/10 text-white" : "text-white/70 hover:bg-white/7"}`}><Link2 className={`size-4 ${activeTab === "affiliates" ? "text-[#25e83f]" : ""}`} /> Afiliados</button>
-              <button onClick={() => setActiveTab("mercadolivre")} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left font-semibold ${activeTab === "mercadolivre" ? "bg-[#ffe600] text-[#231f00]" : "text-white/70 hover:bg-white/7"}`}><KeyRound className="size-4" /> Gerador ML</button>
-              <button onClick={() => setActiveTab("automation")} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left font-semibold ${activeTab === "automation" ? "bg-white/10 text-white" : "text-white/70 hover:bg-white/7"}`}><Bot className={`size-4 ${activeTab === "automation" ? "text-[#25e83f]" : ""}`} /> Automação</button>
+            <nav className="flex-1 space-y-1 overflow-y-auto p-3 text-sm">
+              {[
+                ["groups", "Grupos", UsersRound],
+                ["affiliates", "Afiliados", Link2],
+                ["mercadolivre", "Gerador ML", KeyRound],
+                ["automation", "Automação", Bot],
+                ["whatsapp", "WhatsApp / UAZAPI", Smartphone],
+              ].map(([value, label, Icon]) => (
+                <button key={String(value)} onClick={() => setActiveTab(String(value))} className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left font-medium transition-colors ${activeTab === value ? "bg-[#1b3323] text-[#62ef8b] ring-1 ring-[#3ca85c]/35" : "text-[#94a69b] hover:bg-[#111813] hover:text-white"}`}>
+                  <Icon className="size-4 shrink-0" /><span className="truncate">{label}</span>
+                </button>
+              ))}
             </nav>
-            <div className="mt-5 border-t border-white/10 pt-4">
-              <div className="flex items-center gap-3 rounded-xl bg-[#00c853]/12 p-3">
-                <ShieldCheck className="size-5 text-[#25e83f]" />
-                <p className="text-xs leading-5 text-white/72">Credenciais protegidas no servidor.</p>
+            <div className="border-t border-[#243029] p-3">
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-xl bg-[#101612] px-3 py-3">
+                <div className="min-w-0"><p className="truncate text-sm font-medium">José Augusto</p><p className="truncate text-xs text-[#62ef8b]">Operação Promozap</p></div>
+                <button onClick={() => setActiveTab("whatsapp")} aria-label="Configurar WhatsApp" className="grid size-8 place-items-center rounded-lg text-[#94a69b] hover:bg-[#1b241e] hover:text-white"><Settings2 className="size-4" /></button>
               </div>
             </div>
           </div>
         </aside>
 
-        <section className="min-w-0">
-          <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-            <div>
-              <p className="mb-1 text-sm font-semibold text-[#52e579]">Central de distribuição</p>
-              <h1 className="max-w-2xl text-3xl font-extrabold tracking-[-0.045em] sm:text-4xl">Escolha de onde as ofertas vêm e para onde elas vão.</h1>
+        <div className="min-w-0">
+          <header className="sticky top-0 z-40 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-[#243029] bg-[#030504]/88 px-4 py-3 backdrop-blur-xl sm:px-6">
+            <div className="flex min-w-0 items-center gap-3">
+              <Image src="/promozap-logo.png" width={128} height={43} alt="Promozap" className="h-auto w-28 object-contain lg:hidden" priority />
+              <div className="relative hidden max-w-sm flex-1 lg:block"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#718079]" /><Input value={activeTab === "groups" ? search : ""} onChange={(event) => { setActiveTab("groups"); setSearch(event.target.value); }} placeholder="Buscar grupos..." className="h-10 border-[#2a3730] bg-[#0d1310] pl-9" /></div>
             </div>
-            <Button onClick={() => void loadData()} variant="outline" className="h-11 rounded-xl border-[#2b3830] bg-[#0d1310] text-white hover:bg-[#162019]"><RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} /> Atualizar grupos</Button>
-          </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button variant="outline" size="icon" className="border-[#2a3730] bg-[#0d1310] text-[#94a69b] hover:bg-[#172019]" aria-label="Notificações"><Bell className="size-4" /></Button>
+              <button onClick={() => setActiveTab("whatsapp")} className={`flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold ${whatsappConnected ? "border-[#2f7042] bg-[#102218] text-[#72f295]" : "border-[#3b443e] bg-[#111512] text-[#a7afa9]"}`}><span className={`size-2 rounded-full ${whatsappConnected ? "bg-[#31d365]" : "bg-[#778078]"}`} />{whatsappConnected ? "Conectado" : "Configurar"}</button>
+            </div>
+          </header>
+
+          <section className="min-w-0 space-y-6 p-4 sm:p-6">
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+              <div className="min-w-0"><h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{pageMeta[0]}</h1><p className="mt-1 text-sm text-[#94a69b]">{pageMeta[1]}</p></div>
+              <Button onClick={() => void loadData()} variant="outline" className="h-10 rounded-lg border-[#2b3830] bg-[#0d1310] text-white hover:bg-[#162019]"><RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} /> Atualizar</Button>
+            </div>
 
           <div className="mb-6 grid grid-cols-3 overflow-hidden rounded-2xl border border-[#27322b] bg-[#0b100d] shadow-[0_18px_50px_rgba(0,0,0,.28)]">
             {statItems.map(({ value, label, Icon }, index) => (
@@ -371,11 +441,12 @@ export default function Dashboard() {
           {error && <div className="mb-5 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{error}</span></div>}
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-5">
-            <TabsList className="h-12 w-full justify-start overflow-x-auto rounded-xl border border-[#27322b] bg-[#0b100d] p-1 sm:w-fit">
+            <TabsList className="h-12 w-full justify-start overflow-x-auto rounded-xl border border-[#27322b] bg-[#0b100d] p-1 lg:hidden">
               <TabsTrigger value="groups" className="h-10 min-w-28 rounded-lg px-4">Grupos</TabsTrigger>
               <TabsTrigger value="affiliates" className="h-10 min-w-28 rounded-lg px-4">Afiliados</TabsTrigger>
               <TabsTrigger value="mercadolivre" className="h-10 min-w-32 rounded-lg px-4 data-[state=active]:bg-[#ffe600] data-[state=active]:text-[#231f00]">Gerador ML</TabsTrigger>
               <TabsTrigger value="automation" className="h-10 min-w-28 rounded-lg px-4">Automação</TabsTrigger>
+              <TabsTrigger value="whatsapp" className="h-10 min-w-36 rounded-lg px-4">WhatsApp</TabsTrigger>
             </TabsList>
 
             <TabsContent value="groups" id="grupos">
@@ -549,6 +620,37 @@ export default function Dashboard() {
               </div>
             </TabsContent>
 
+            <TabsContent value="whatsapp" id="whatsapp">
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+                <Card className="overflow-hidden border-[#27322b] bg-[#0b100d] shadow-none">
+                  <CardHeader className="border-b border-[#27322b] px-5 py-4">
+                    <CardTitle className="flex items-center gap-2 text-base font-medium"><Smartphone className="size-4 text-[#62ef8b]" /> Credenciais UAZAPI</CardTitle>
+                    <CardDescription>Conecte a instância que será usada para monitorar e publicar nos grupos.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-5 p-5">
+                    <label className="block space-y-2 text-sm font-medium">URL do servidor<Input value={whatsapp.serverUrl} onChange={(event) => setWhatsapp((value) => ({ ...value, serverUrl: event.target.value }))} placeholder="https://free.uazapi.com" className="h-11 rounded-lg border-[#34423a] bg-[#080c09]" /></label>
+                    <label className="block space-y-2 text-sm font-medium">
+                      <span className="flex items-center justify-between"><span>Instance Token</span><button type="button" onClick={() => setWhatsappTokenVisible((value) => !value)} className="flex items-center gap-1.5 text-xs text-[#62ef8b] hover:underline">{whatsappTokenVisible ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}{whatsappTokenVisible ? "Ocultar" : "Mostrar"}</button></span>
+                      <Input type={whatsappTokenVisible ? "text" : "password"} value={whatsapp.instanceToken} onChange={(event) => { setWhatsapp((value) => ({ ...value, instanceToken: event.target.value })); setWhatsappConnected(false); }} placeholder="Cole o token da instância" className="h-11 rounded-lg border-[#34423a] bg-[#080c09] font-mono text-sm" />
+                    </label>
+                    <div className="flex gap-2 rounded-xl border border-[#244c31] bg-[#0d1d12] p-3 text-sm leading-6 text-[#a7cbb2]"><ShieldCheck className="mt-1 size-4 shrink-0 text-[#52e579]" /><p>As credenciais ficam salvas automaticamente neste navegador e são enviadas somente à UAZAPI informada.</p></div>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Button onClick={() => void testWhatsappConnection()} disabled={whatsappTesting} className="h-11 rounded-lg bg-[#24c75a] px-5 text-[#04140a] hover:bg-[#46df75]">{whatsappTesting ? <LoaderCircle className="animate-spin" /> : <BadgeCheck />} Testar conexão</Button>
+                      {whatsapp.instanceToken && <Button onClick={() => { setWhatsapp(emptyWhatsApp); setWhatsappConnected(false); }} variant="outline" className="h-11 rounded-lg border-[#40302d] bg-[#17100e] text-[#ff9b92] hover:bg-[#211512]">Limpar credenciais</Button>}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <div className="space-y-4">
+                  <Card className="border-[#27322b] bg-[#0b100d] shadow-none">
+                    <CardHeader className="pb-3"><CardDescription>Status da conexão</CardDescription><CardTitle className="flex items-center gap-2 text-lg"><span className={`size-2.5 rounded-full ${whatsappConnected ? "bg-[#31d365] shadow-[0_0_0_5px_rgba(49,211,101,.12)]" : "bg-[#6f7771]"}`} />{whatsappConnected ? "Instância conectada" : "Aguardando teste"}</CardTitle></CardHeader>
+                    <CardContent className="space-y-3 text-sm text-[#94a69b]"><div className="flex justify-between gap-3 border-t border-[#27322b] pt-3"><span>Servidor</span><span className="truncate text-right text-white">{whatsapp.serverUrl || "Não informado"}</span></div><div className="flex justify-between gap-3"><span>Grupos encontrados</span><span className="font-medium text-white">{whatsappConnected ? groups.length : "—"}</span></div><div className="flex justify-between gap-3"><span>Salvamento</span><span className="text-[#62ef8b]">Automático</span></div></CardContent>
+                  </Card>
+                  <Card className="border-[#27322b] bg-[#0b100d] shadow-none"><CardHeader><CardTitle className="text-base">Próximo passo</CardTitle><CardDescription>Depois de conectar, abra “Grupos” para escolher as fontes, os destinos e as categorias.</CardDescription></CardHeader><CardContent><Button onClick={() => setActiveTab("groups")} variant="outline" className="w-full border-[#2b3830] bg-[#111813] text-white hover:bg-[#19231c]"><UsersRound /> Organizar grupos</Button></CardContent></Card>
+                </div>
+              </div>
+            </TabsContent>
+
             <TabsContent value="automation" id="automacao">
               <Card className="border-[#dce7df] shadow-[0_10px_30px_rgba(7,20,22,.05)]">
                 <CardHeader><CardTitle className="text-xl">Fluxo de automação</CardTitle><CardDescription>Visão do que acontecerá com cada mensagem recebida.</CardDescription></CardHeader>
@@ -575,6 +677,7 @@ export default function Dashboard() {
             </TabsContent>
           </Tabs>
         </section>
+      </div>
       </div>
     </main>
   );
