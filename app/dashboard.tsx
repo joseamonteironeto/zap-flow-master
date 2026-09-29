@@ -18,12 +18,14 @@ import {
   KeyRound,
   Link2,
   LoaderCircle,
+  Moon,
   MessageCircleMore,
   RefreshCw,
   Search,
   Settings2,
   ShieldCheck,
   Smartphone,
+  Sun,
   UsersRound,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -130,6 +132,7 @@ function roleLabel(role: Role) {
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("groups");
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [groups, setGroups] = useState<Group[]>([]);
   const [configs, setConfigs] = useState<Record<string, GroupConfig>>({});
   const [affiliate, setAffiliate] = useState<AffiliateSettings>(emptyAffiliate);
@@ -201,6 +204,15 @@ export default function Dashboard() {
     }
     setWhatsappLoaded(true);
   }, []);
+
+  useEffect(() => {
+    const savedTheme = window.localStorage.getItem("promozap.theme");
+    if (savedTheme === "light" || savedTheme === "dark") setTheme(savedTheme);
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("promozap.theme", theme);
+  }, [theme]);
 
   useEffect(() => {
     if (!whatsappLoaded) return;
@@ -379,7 +391,7 @@ export default function Dashboard() {
   }[activeTab] || ["Painel Promozap", "Operação de grupos de ofertas."];
 
   return (
-    <main className="promozap-dark min-h-screen bg-background text-foreground">
+    <main className={`promozap-${theme} min-h-screen bg-background text-foreground`}>
       <Toaster position="top-center" richColors />
       <div className="min-h-screen lg:grid lg:grid-cols-[260px_minmax(0,1fr)]">
         <aside className="hidden border-r border-[#243029] bg-[#070a08] lg:block">
@@ -417,6 +429,7 @@ export default function Dashboard() {
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <Button variant="outline" size="icon" className="border-[#2a3730] bg-[#0d1310] text-[#94a69b] hover:bg-[#172019]" aria-label="Notificações"><Bell className="size-4" /></Button>
+              <Button onClick={() => setTheme((value) => value === "dark" ? "light" : "dark")} variant="outline" size="icon" className="border-[#2a3730] bg-[#0d1310] text-[#94a69b] hover:bg-[#172019]" aria-label={theme === "dark" ? "Ativar modo claro" : "Ativar modo escuro"}>{theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}</Button>
               <button onClick={() => setActiveTab("whatsapp")} className={`flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold ${whatsappConnected ? "border-[#2f7042] bg-[#102218] text-[#72f295]" : "border-[#3b443e] bg-[#111512] text-[#a7afa9]"}`}><span className={`size-2 rounded-full ${whatsappConnected ? "bg-[#31d365]" : "bg-[#778078]"}`} />{whatsappConnected ? "Conectado" : "Configurar"}</button>
             </div>
           </header>

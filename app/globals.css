@@ -114,3 +114,55 @@ button, input, select { font: inherit; }
 .promozap-dark input,
 .promozap-dark textarea,
 .promozap-dark select { color: #f4fff6; }
+
+.promozap-light {
+  --background: #f6f9f7;
+  --foreground: #17221b;
+  --card: #ffffff;
+  --card-foreground: #17221b;
+  --popover: #ffffff;
+  --popover-foreground: #17221b;
+  --secondary: #e8f4eb;
+  --secondary-foreground: #176b35;
+  --muted: #edf3ef;
+  --muted-foreground: #637168;
+  --accent: #e2f5e7;
+  --accent-foreground: #176b35;
+  --border: #d7e1da;
+  --input: #cbd8cf;
+  --ring: #23b957;
+}
+.promozap-light [class~="bg-[#070a08]"],
+.promozap-light [class~="bg-[#0b100d]"],
+.promozap-light [class~="bg-[#0d1310]"],
+.promozap-light [class~="bg-[#080c09]"],
+.promozap-light [class~="bg-[#101612]"],
+.promozap-light [class~="bg-[#111813]"],
+.promozap-light [class~="bg-[#111512]"],
+.promozap-light [class~="bg-[#080b09]"],
+.promozap-light [class~="bg-[#071416]"] { background-color: #ffffff !important; }
+.promozap-light [class~="bg-[#030504]/88"] { background-color: rgb(246 249 247 / 92%) !important; }
+.promozap-light [class~="bg-[#102218]"],
+.promozap-light [class~="bg-[#0d1d12]"],
+.promozap-light [class~="bg-[#1b3323]"] { background-color: #e2f5e7 !important; }
+.promozap-light [class~="bg-[#17100e]"],
+.promozap-light [class~="bg-[#21110e]"] { background-color: #fff0ed !important; }
+.promozap-light [class~="border-[#243029]"],
+.promozap-light [class~="border-[#27322b]"],
+.promozap-light [class~="border-[#2a3730]"],
+.promozap-light [class~="border-[#2b3830]"],
+.promozap-light [class~="border-[#34423a]"] { border-color: #d7e1da !important; }
+.promozap-light [class~="text-white"],
+.promozap-light [class~="text-white/70"],
+.promozap-light [class~="text-white/72"],
+.promozap-light [class~="text-white/55"],
+.promozap-light [class~="text-white/45"] { color: #17221b !important; }
+.promozap-light [class~="text-[#94a69b]"],
+.promozap-light [class~="text-[#a7afa9]"],
+.promozap-light [class~="text-[#a7cbb2]"] { color: #637168 !important; }
+.promozap-light [class~="bg-white/10"],
+.promozap-light [class~="bg-white/8"],
+.promozap-light [class~="bg-white/6"] { background-color: #eef5f0 !important; }
+.promozap-light input,
+.promozap-light textarea,
+.promozap-light select { color: #17221b; }
