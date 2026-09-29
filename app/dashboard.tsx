@@ -10,8 +10,11 @@ import {
   Check,
   CircleAlert,
   Copy,
+  Cookie,
+  Eye,
+  EyeOff,
   ExternalLink,
-  FlaskConical,
+  KeyRound,
   Link2,
   LoaderCircle,
   MessageCircleMore,
@@ -62,6 +65,8 @@ type AffiliateSettings = {
 
 type MercadoLivreTestResult = {
   ok: boolean;
+  connected?: boolean;
+  cookieCount?: number;
   upstreamStatus?: number;
   message: string;
   results?: Array<{
@@ -112,6 +117,7 @@ function roleLabel(role: Role) {
 }
 
 export default function Dashboard() {
+  const [activeTab, setActiveTab] = useState("groups");
   const [groups, setGroups] = useState<Group[]>([]);
   const [configs, setConfigs] = useState<Record<string, GroupConfig>>({});
   const [affiliate, setAffiliate] = useState<AffiliateSettings>(emptyAffiliate);
@@ -122,6 +128,8 @@ export default function Dashboard() {
   const [demo, setDemo] = useState(false);
   const [testUrl, setTestUrl] = useState("https://www.amazon.com.br/dp/B0D1234567");
   const [mlTestUrls, setMlTestUrls] = useState("https://produto.mercadolivre.com.br/MLB-1010954920");
+  const [mlSessionCookies, setMlSessionCookies] = useState("");
+  const [mlCookiesVisible, setMlCookiesVisible] = useState(false);
   const [mlTestLoading, setMlTestLoading] = useState(false);
   const [mlTestResult, setMlTestResult] = useState<MercadoLivreTestResult | null>(null);
 
@@ -263,18 +271,22 @@ export default function Dashboard() {
       toast.error("Cole pelo menos um link de produto.");
       return;
     }
+    if (!mlSessionCookies.trim()) {
+      toast.error("Cole os cookies da sessão do Mercado Livre.");
+      return;
+    }
     setMlTestLoading(true);
     setMlTestResult(null);
     try {
       const response = await fetch("/api/affiliate/mercadolivre/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ urls, tag: affiliate.mercadoLivreLabel.trim() || "promozap" }),
+        body: JSON.stringify({ urls, tag: affiliate.mercadoLivreLabel.trim() || "promozap", cookies: mlSessionCookies }),
       });
       const result = await response.json() as MercadoLivreTestResult;
       setMlTestResult(result);
-      if (result.ok) toast.success("O Mercado Livre gerou o link pelo request.");
-      else toast.warning("O teste chegou ao Mercado Livre, mas a sessão foi exigida.");
+      if (result.ok) toast.success("Links gerados com sua sessão do Mercado Livre.");
+      else toast.warning(result.message);
     } catch {
       setMlTestResult({ ok: false, message: "O painel não conseguiu concluir o teste agora." });
       toast.error("Não foi possível executar o teste.");
@@ -309,9 +321,10 @@ export default function Dashboard() {
           <div className="sticky top-24 rounded-2xl bg-[#071416] p-4 text-white shadow-[0_18px_50px_rgba(7,20,22,.16)]">
             <p className="px-2 pb-3 text-xs font-semibold text-white/50">PAINEL PRIVADO</p>
             <nav className="space-y-1 text-sm">
-              <a href="#grupos" className="flex items-center gap-3 rounded-xl bg-white/10 px-3 py-3 font-semibold"><UsersRound className="size-4 text-[#25e83f]" /> Grupos</a>
-              <a href="#afiliados" className="flex items-center gap-3 rounded-xl px-3 py-3 text-white/70 hover:bg-white/7"><Link2 className="size-4" /> Afiliados</a>
-              <a href="#automacao" className="flex items-center gap-3 rounded-xl px-3 py-3 text-white/70 hover:bg-white/7"><Bot className="size-4" /> Automação</a>
+              <button onClick={() => setActiveTab("groups")} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left font-semibold ${activeTab === "groups" ? "bg-white/10 text-white" : "text-white/70 hover:bg-white/7"}`}><UsersRound className={`size-4 ${activeTab === "groups" ? "text-[#25e83f]" : ""}`} /> Grupos</button>
+              <button onClick={() => setActiveTab("affiliates")} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left font-semibold ${activeTab === "affiliates" ? "bg-white/10 text-white" : "text-white/70 hover:bg-white/7"}`}><Link2 className={`size-4 ${activeTab === "affiliates" ? "text-[#25e83f]" : ""}`} /> Afiliados</button>
+              <button onClick={() => setActiveTab("mercadolivre")} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left font-semibold ${activeTab === "mercadolivre" ? "bg-[#ffe600] text-[#231f00]" : "text-white/70 hover:bg-white/7"}`}><KeyRound className="size-4" /> Gerador ML</button>
+              <button onClick={() => setActiveTab("automation")} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left font-semibold ${activeTab === "automation" ? "bg-white/10 text-white" : "text-white/70 hover:bg-white/7"}`}><Bot className={`size-4 ${activeTab === "automation" ? "text-[#25e83f]" : ""}`} /> Automação</button>
             </nav>
             <div className="mt-5 border-t border-white/10 pt-4">
               <div className="flex items-center gap-3 rounded-xl bg-[#00c853]/12 p-3">
@@ -344,10 +357,11 @@ export default function Dashboard() {
           {demo && <div className="mb-5 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>Prévia com grupos de exemplo. Na versão publicada, o painel usa os grupos da sua instância.</span></div>}
           {error && <div className="mb-5 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{error}</span></div>}
 
-          <Tabs defaultValue="groups" className="gap-5">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-5">
             <TabsList className="h-12 w-full justify-start overflow-x-auto rounded-xl border border-[#dce7df] bg-white p-1 sm:w-fit">
               <TabsTrigger value="groups" className="h-10 min-w-28 rounded-lg px-4">Grupos</TabsTrigger>
               <TabsTrigger value="affiliates" className="h-10 min-w-28 rounded-lg px-4">Afiliados</TabsTrigger>
+              <TabsTrigger value="mercadolivre" className="h-10 min-w-32 rounded-lg px-4 data-[state=active]:bg-[#ffe600] data-[state=active]:text-[#231f00]">Gerador ML</TabsTrigger>
               <TabsTrigger value="automation" className="h-10 min-w-28 rounded-lg px-4">Automação</TabsTrigger>
             </TabsList>
 
@@ -458,44 +472,66 @@ export default function Dashboard() {
                   </CardContent>
                 </Card>
 
-                <Card className="h-fit border-[#ebd76a] bg-[#fff7c8] text-[#2e2908] shadow-[0_14px_40px_rgba(90,72,0,.12)] xl:col-start-2">
+              </div>
+            </TabsContent>
+
+            <TabsContent value="mercadolivre" id="mercadolivre">
+              <div className="overflow-hidden rounded-2xl border border-[#d5c300] bg-[#ffe600] shadow-[0_14px_40px_rgba(93,82,0,.14)]">
+                <div className="flex flex-col gap-3 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+                  <div className="flex items-center gap-3">
+                    <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[#231f00] text-[#ffe600]"><KeyRound className="size-5" /></div>
+                    <div><h2 className="text-xl font-extrabold tracking-[-0.03em] text-[#231f00]">Gerador Mercado Livre</h2><p className="mt-1 text-sm text-[#655b00]">Converta links usando sua tag e sua sessão de afiliado.</p></div>
+                  </div>
+                  <div className={`flex w-fit items-center gap-2 rounded-full px-3 py-2 text-sm font-bold ${mlTestResult?.connected ? "bg-[#0b6b35] text-white" : "bg-[#231f00]/10 text-[#4c4500]"}`}>
+                    <span className={`size-2 rounded-full ${mlTestResult?.connected ? "bg-[#62ef8b]" : "bg-[#8b800e]"}`} />
+                    {mlTestResult?.connected ? "Sessão conectada" : mlSessionCookies ? "Sessão pronta" : "Aguardando cookies"}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(320px,.72fr)]">
+                <Card className="border-[#dce7df] shadow-[0_10px_30px_rgba(7,20,22,.05)]">
                   <CardHeader>
-                    <div className="mb-2 flex size-10 items-center justify-center rounded-xl bg-[#ffe600]"><FlaskConical className="size-5" /></div>
-                    <CardTitle className="text-lg">Laboratório Mercado Livre</CardTitle>
-                    <CardDescription className="text-[#6f641c]">Teste o endpoint encontrado no Gerador de Links. Um produto por linha.</CardDescription>
+                    <CardTitle className="flex items-center gap-2 text-xl"><Cookie className="size-5 text-[#008f3d]" /> Credenciais da sessão</CardTitle>
+                    <CardDescription>A tag pode ficar salva. Os cookies ficam somente nesta página e são apagados quando ela é fechada.</CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-4">
-                    <Textarea
-                      value={mlTestUrls}
-                      onChange={(event) => setMlTestUrls(event.target.value)}
-                      rows={5}
-                      placeholder="https://produto.mercadolivre.com.br/MLB-..."
-                      className="min-h-32 resize-y rounded-xl border-[#d9c75e] bg-white text-[#171505]"
-                    />
-                    <div className="rounded-xl border border-[#ddcb62] bg-white/70 px-3 py-2 text-xs leading-5 text-[#665b16]">
-                      Etiqueta enviada: <strong>{affiliate.mercadoLivreLabel.trim() || "promozap"}</strong>. O teste não recebe nem armazena cookies do Mercado Livre.
+                  <CardContent className="space-y-5">
+                    <label className="block space-y-2 text-sm font-semibold">Tag de afiliado<Input value={affiliate.mercadoLivreLabel} onChange={(event) => setAffiliate((value) => ({ ...value, mercadoLivreLabel: event.target.value }))} placeholder="promozap" className="h-12 rounded-xl" /></label>
+                    <label className="block space-y-2 text-sm font-semibold">
+                      <span className="flex items-center justify-between gap-3"><span>Cookies da sessão</span><button type="button" onClick={() => setMlCookiesVisible((value) => !value)} className="flex items-center gap-1.5 text-xs font-semibold text-[#008f3d] hover:underline">{mlCookiesVisible ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}{mlCookiesVisible ? "Ocultar" : "Mostrar"}</button></span>
+                      <Textarea value={mlSessionCookies} onChange={(event) => { setMlSessionCookies(event.target.value); setMlTestResult(null); }} rows={10} spellCheck={false} placeholder={'Cole aqui o JSON exportado: [{ "domain": "...", "name": "...", "value": "..." }]'} className={`min-h-56 resize-y rounded-xl font-mono text-xs leading-5 ${mlCookiesVisible ? "text-[#071416]" : "text-transparent caret-[#071416] selection:bg-[#bdecca]"}`} />
+                    </label>
+                    <div className="flex gap-2 rounded-xl border border-[#bfe9cc] bg-[#ebfaef] p-3 text-sm leading-6 text-[#356044]"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-[#008f3d]" /><p>Use apenas cookies da sua conta. Eles são enviados ao Mercado Livre somente ao gerar o link e não são salvos no painel.</p></div>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Button onClick={() => void saveAffiliate()} disabled={saving} variant="outline" className="h-11 rounded-xl bg-white">{saving ? <LoaderCircle className="animate-spin" /> : <BadgeCheck />} Salvar tag</Button>
+                      {mlSessionCookies && <Button onClick={() => { setMlSessionCookies(""); setMlTestResult(null); }} variant="ghost" className="h-11 rounded-xl text-[#8b2e1b]">Limpar sessão</Button>}
                     </div>
-                    <Button onClick={() => void testMercadoLivreRequest()} disabled={mlTestLoading} className="h-12 w-full rounded-xl bg-[#2e2908] text-white hover:bg-[#474015]">
-                      {mlTestLoading ? <LoaderCircle className="animate-spin" /> : <FlaskConical />} Testar request direto
-                    </Button>
-                    {mlTestResult && (
-                      <div className={`rounded-xl border p-4 ${mlTestResult.ok ? "border-[#8fd9a5] bg-[#effbf2]" : "border-[#e4b5a8] bg-[#fff3ef]"}`}>
-                        <p className="text-sm font-bold">{mlTestResult.ok ? "Request aceito" : `Request bloqueado${mlTestResult.upstreamStatus ? ` · HTTP ${mlTestResult.upstreamStatus}` : ""}`}</p>
-                        <p className="mt-1 text-xs leading-5 opacity-75">{mlTestResult.message}</p>
-                        {mlTestResult.results?.map((item) => (
-                          <div key={item.originUrl} className="mt-3 rounded-lg border border-black/8 bg-white p-3">
-                            <p className="break-all text-xs text-[#6b6b58]">{item.originUrl}</p>
-                            <a href={item.shortUrl} target="_blank" rel="noreferrer" className="mt-2 block break-all text-sm font-bold text-[#087c39] underline underline-offset-2">{item.shortUrl}</a>
-                            <Button variant="outline" size="sm" onClick={() => { void navigator.clipboard.writeText(item.longUrl || item.shortUrl); toast.success("Link copiado."); }} className="mt-3 rounded-lg bg-white"><Copy /> Copiar link completo</Button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <Button asChild variant="outline" className="h-11 w-full rounded-xl border-[#c9b94f] bg-white/80">
-                      <a href="https://www.mercadolivre.com.br/afiliados/linkbuilder#hub" target="_blank" rel="noreferrer"><ExternalLink /> Abrir gerador oficial</a>
-                    </Button>
                   </CardContent>
                 </Card>
+
+                <Card className="h-fit border-[#dce7df] bg-[#071416] text-white shadow-[0_18px_50px_rgba(7,20,22,.16)]">
+                  <CardHeader><CardTitle className="text-xl">Produtos para converter</CardTitle><CardDescription className="text-white/55">Cole até 20 links, um em cada linha.</CardDescription></CardHeader>
+                  <CardContent className="space-y-4">
+                    <Textarea value={mlTestUrls} onChange={(event) => setMlTestUrls(event.target.value)} rows={7} placeholder="https://produto.mercadolivre.com.br/MLB-..." className="min-h-44 resize-y rounded-xl border-white/15 bg-white/8 text-white placeholder:text-white/35" />
+                    <Button onClick={() => void testMercadoLivreRequest()} disabled={mlTestLoading} className="h-12 w-full rounded-xl bg-[#ffe600] font-bold text-[#231f00] hover:bg-[#fff05a]">{mlTestLoading ? <LoaderCircle className="animate-spin" /> : <Link2 />} Gerar links de afiliado</Button>
+                    <Button asChild variant="outline" className="h-11 w-full rounded-xl border-white/15 bg-white/8 text-white hover:bg-white/14"><a href="https://www.mercadolivre.com.br/afiliados/linkbuilder#hub" target="_blank" rel="noreferrer"><ExternalLink /> Abrir gerador oficial</a></Button>
+                  </CardContent>
+                </Card>
+
+                {mlTestResult && (
+                  <Card className={`xl:col-span-2 ${mlTestResult.ok ? "border-[#8fd9a5] bg-[#effbf2]" : "border-[#e4b5a8] bg-[#fff3ef]"}`}>
+                    <CardHeader><CardTitle className="text-lg">{mlTestResult.ok ? "Links gerados" : `Não foi possível gerar${mlTestResult.upstreamStatus ? ` · HTTP ${mlTestResult.upstreamStatus}` : ""}`}</CardTitle><CardDescription>{mlTestResult.message}</CardDescription></CardHeader>
+                    <CardContent className="grid gap-3 md:grid-cols-2">
+                      {mlTestResult.results?.map((item) => (
+                        <div key={item.originUrl} className="rounded-xl border border-black/8 bg-white p-4">
+                          <p className="break-all text-xs leading-5 text-[#6b756e]">{item.originUrl}</p>
+                          <a href={item.shortUrl} target="_blank" rel="noreferrer" className="mt-3 block break-all text-sm font-bold text-[#087c39] underline underline-offset-2">{item.shortUrl}</a>
+                          <Button variant="outline" size="sm" onClick={() => { void navigator.clipboard.writeText(item.longUrl || item.shortUrl); toast.success("Link copiado."); }} className="mt-4 rounded-lg bg-white"><Copy /> Copiar link completo</Button>
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+                )}
               </div>
             </TabsContent>
 
