@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { NextResponse } from "next/server";
 import { automationLog } from "@/lib/automation-log";
+import { getAutomationButtonSettings } from "@/lib/automation-buttons";
 import { extractUrls } from "@/lib/link-resolver";
 import { markProductsSent, processProductInput } from "@/lib/product-pipeline";
 
@@ -220,8 +221,8 @@ export async function POST(request: Request) {
         details: { messageId: extracted.messageId, messageType: extracted.messageType },
       });
     }
-    const endpoint = incomingImage ? "/send/media" : "/send/text";
-    const body = incomingImage ? {
+    const fallbackEndpoint = incomingImage ? "/send/media" : "/send/text";
+    const fallbackBody = incomingImage ? {
       number: route.destinationJid,
       type: "image",
       file: incomingImage.file,
@@ -238,12 +239,58 @@ export async function POST(request: Request) {
       track_source: "promozap",
       track_id: extracted.messageId,
     };
-    const response = await fetch(`${serverUrl}${endpoint}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", token },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(20_000),
-    });
+    const buttonSettings = await getAutomationButtonSettings();
+    const buttonLabel = buttonSettings.enabled && buttonSettings.labels.length
+      ? buttonSettings.labels[Math.floor(Math.random() * buttonSettings.labels.length)]
+      : "";
+    const buttonUrl = converted[0]?.affiliateUrl || "";
+    let buttonSent = false;
+    let usedFallback = false;
+    let response: Response;
+
+    if (buttonLabel && buttonUrl) {
+      response = await fetch(`${serverUrl}/send/menu`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", token },
+        body: JSON.stringify({
+          number: route.destinationJid,
+          type: "button",
+          text: outgoingText,
+          choices: [`${buttonLabel}|${buttonUrl}`],
+          ...(incomingImage ? { imageButton: incomingImage.file } : {}),
+          footerText: "Promozap",
+          async: true,
+          track_source: "promozap",
+          track_id: extracted.messageId,
+        }),
+        signal: AbortSignal.timeout(20_000),
+      });
+      buttonSent = response.ok;
+      if (!response.ok) {
+        const menuError = await response.text();
+        usedFallback = true;
+        await automationLog({
+          level: "warning",
+          stage: "button_fallback",
+          message: `A UAZAPI recusou o botão “${buttonLabel}”; a oferta será enviada no formato normal.`,
+          groupJid: route.destinationJid,
+          details: { providerStatus: response.status, providerResponse: menuError.slice(0, 300) },
+        });
+        response = await fetch(`${serverUrl}${fallbackEndpoint}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", token },
+          body: JSON.stringify(fallbackBody),
+          signal: AbortSignal.timeout(20_000),
+        });
+      }
+    } else {
+      response = await fetch(`${serverUrl}${fallbackEndpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", token },
+        body: JSON.stringify(fallbackBody),
+        signal: AbortSignal.timeout(20_000),
+      });
+    }
     const providerResponse = await response.text();
     if (!response.ok) throw new Error(`UAZAPI respondeu HTTP ${response.status}: ${providerResponse.slice(0, 300)}`);
 
@@ -252,7 +299,7 @@ export async function POST(request: Request) {
     await automationLog({
       level: "success",
       stage: "sent",
-      message: `Oferta enviada ao grupo de destino (${converted.length} produto(s))${incomingImage ? " com a foto original" : ""}.`,
+      message: `Oferta enviada ao grupo de destino (${converted.length} produto(s))${incomingImage ? " com a foto original" : ""}${buttonSent ? ` e botão “${buttonLabel}”` : ""}.`,
       groupJid: route.destinationJid,
       details: {
         sourceGroup: extracted.chatJid,
@@ -261,6 +308,10 @@ export async function POST(request: Request) {
         messageId: extracted.messageId,
         imageForwarded: Boolean(incomingImage),
         mediaSource: incomingImage?.source || null,
+        buttonSent,
+        buttonLabel: buttonLabel || null,
+        buttonUrl: buttonSent ? buttonUrl : null,
+        usedFallback,
       },
     });
     return NextResponse.json({ ok: true, converted: converted.length, sent: true });

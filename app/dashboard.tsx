@@ -21,6 +21,7 @@ import {
   Moon,
   MessageCircleMore,
   PackageSearch,
+  Plus,
   RefreshCw,
   Search,
   Send,
@@ -32,6 +33,7 @@ import {
   Sun,
   UsersRound,
   Webhook,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -75,6 +77,11 @@ type AffiliateSettings = {
 type WhatsAppSettings = {
   serverUrl: string;
   instanceToken: string;
+};
+
+type AutomationButtonSettings = {
+  enabled: boolean;
+  labels: string[];
 };
 
 type MercadoLivreTestResult = {
@@ -155,6 +162,11 @@ const emptyAffiliate: AffiliateSettings = {
 const emptyWhatsApp: WhatsAppSettings = {
   serverUrl: "https://free.uazapi.com",
   instanceToken: "",
+};
+
+const defaultAutomationButtons: AutomationButtonSettings = {
+  enabled: true,
+  labels: ["COMPRAR AGORA", "ADQUIRA JÁ", "LINK COM DESCONTO", "APROVEITAR OFERTA", "VER PROMOÇÃO"],
 };
 
 function initials(name: string) {
@@ -251,6 +263,9 @@ export default function Dashboard() {
   const [logsLoading, setLogsLoading] = useState(false);
   const [webhookSettingUp, setWebhookSettingUp] = useState(false);
   const [webhookActive, setWebhookActive] = useState(false);
+  const [buttonSettings, setButtonSettings] = useState<AutomationButtonSettings>(defaultAutomationButtons);
+  const [buttonDraft, setButtonDraft] = useState("");
+  const [buttonSettingsSaving, setButtonSettingsSaving] = useState(false);
 
   async function loadData() {
     setLoading(true);
@@ -259,14 +274,16 @@ export default function Dashboard() {
       const groupsRequest = whatsapp.instanceToken.trim()
         ? fetch("/api/groups", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ serverUrl: whatsapp.serverUrl, token: whatsapp.instanceToken, search }) })
         : fetch("/api/groups");
-      const [groupsResponse, configResponse, affiliateResponse] = await Promise.all([
+      const [groupsResponse, configResponse, affiliateResponse, buttonResponse] = await Promise.all([
         groupsRequest,
         fetch("/api/config"),
         fetch("/api/affiliate"),
+        fetch("/api/automation/buttons"),
       ]);
       const groupsData = await groupsResponse.json() as { groups?: Group[]; demo?: boolean; connected?: boolean; error?: string };
       const configData = await configResponse.json() as { configs?: GroupConfig[] };
       const affiliateData = await affiliateResponse.json() as { settings?: Partial<AffiliateSettings> };
+      const buttonData = await buttonResponse.json() as { settings?: Partial<AutomationButtonSettings> };
       if (!groupsResponse.ok) throw new Error(groupsData.error || "Não foi possível carregar os grupos.");
       const nextGroups = groupsData.groups || [];
       const saved = new Map<string, GroupConfig>((configData.configs || []).map((item: GroupConfig) => [item.jid, item]));
@@ -286,6 +303,10 @@ export default function Dashboard() {
       setWhatsappConnected(Boolean(groupsData.connected));
       setConfigs(merged);
       setAffiliate({ ...emptyAffiliate, ...(affiliateData.settings || {}), amazonEnabled: Boolean(affiliateData.settings?.amazonEnabled ?? true), mercadoLivreEnabled: Boolean(affiliateData.settings?.mercadoLivreEnabled) });
+      setButtonSettings({
+        enabled: Boolean(buttonData.settings?.enabled ?? true),
+        labels: Array.isArray(buttonData.settings?.labels) && buttonData.settings.labels.length ? buttonData.settings.labels : defaultAutomationButtons.labels,
+      });
       setDemo(Boolean(groupsData.demo));
     } catch (caught) {
       setWhatsappConnected(false);
@@ -530,6 +551,38 @@ export default function Dashboard() {
       if (showToast) toast.error(caught instanceof Error ? caught.message : "Não foi possível ativar o webhook.");
     } finally {
       setWebhookSettingUp(false);
+    }
+  }
+
+  function addButtonLabel() {
+    const label = buttonDraft.trim().replace(/\s+/g, " ");
+    if (label.length < 2) return toast.error("Digite um texto para o botão.");
+    if (label.length > 25) return toast.error("Use no máximo 25 caracteres.");
+    if (label.includes("|")) return toast.error("O texto não pode conter o caractere |.");
+    if (buttonSettings.labels.length >= 8) return toast.error("Você pode cadastrar até 8 opções.");
+    if (buttonSettings.labels.some((item) => item.toLocaleUpperCase("pt-BR") === label.toLocaleUpperCase("pt-BR"))) return toast.error("Essa opção já foi adicionada.");
+    setButtonSettings((current) => ({ ...current, labels: [...current.labels, label] }));
+    setButtonDraft("");
+  }
+
+  async function saveButtonSettings() {
+    if (!whatsapp.instanceToken.trim()) return toast.error("Informe o token da UAZAPI para autorizar o salvamento.");
+    if (buttonSettings.enabled && buttonSettings.labels.length === 0) return toast.error("Adicione pelo menos uma opção de botão.");
+    setButtonSettingsSaving(true);
+    try {
+      const response = await fetch("/api/automation/buttons", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "X-Promozap-Admin-Token": whatsapp.instanceToken.trim() },
+        body: JSON.stringify(buttonSettings),
+      });
+      const result = await response.json() as { error?: string; settings?: AutomationButtonSettings };
+      if (!response.ok) throw new Error(result.error || "Não foi possível salvar os botões.");
+      if (result.settings) setButtonSettings(result.settings);
+      toast.success("Botões de compra salvos para a automação.");
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "Não foi possível salvar os botões.");
+    } finally {
+      setButtonSettingsSaving(false);
     }
   }
 
@@ -1021,6 +1074,42 @@ export default function Dashboard() {
                   <Card className="border-[#27322b] bg-[#0b100d] shadow-none"><CardHeader><CardTitle className="text-base">Próximo passo</CardTitle><CardDescription>Depois de conectar, abra “Grupos” para escolher as fontes, os destinos e as categorias.</CardDescription></CardHeader><CardContent><Button onClick={() => setActiveTab("groups")} variant="outline" className="w-full border-[#2b3830] bg-[#111813] text-white hover:bg-[#19231c]"><UsersRound /> Organizar grupos</Button></CardContent></Card>
                 </div>
               </div>
+
+              <Card className="mt-4 overflow-hidden border-[#27322b] bg-[#0b100d] shadow-none">
+                <CardHeader className="border-b border-[#27322b] px-5 py-4">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div><CardTitle className="flex items-center gap-2 text-base font-medium"><MessageCircleMore className="size-4 text-[#62ef8b]" /> Botão de compra</CardTitle><CardDescription className="mt-1">A cada oferta, uma das frases ativas é escolhida aleatoriamente e recebe o link convertido.</CardDescription></div>
+                    <label className="flex w-fit items-center gap-3 rounded-xl border border-[#2d4234] bg-[#0d1811] px-3 py-2 text-sm font-medium text-[#d7e5da]"><Switch checked={buttonSettings.enabled} onCheckedChange={(enabled) => setButtonSettings((current) => ({ ...current, enabled }))} />{buttonSettings.enabled ? "Ativado" : "Desativado"}</label>
+                  </div>
+                </CardHeader>
+                <CardContent className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap gap-2">
+                      {buttonSettings.labels.map((label, index) => (
+                        <div key={`${label}-${index}`} className="flex items-center gap-2 rounded-full border border-[#35513e] bg-[#102018] py-1.5 pl-3 pr-1.5 text-sm font-semibold text-[#dff7e5]">
+                          <span>{label}</span>
+                          <button type="button" onClick={() => setButtonSettings((current) => ({ ...current, labels: current.labels.filter((_, itemIndex) => itemIndex !== index) }))} aria-label={`Remover ${label}`} className="grid size-6 place-items-center rounded-full text-[#93aa99] hover:bg-[#2b3b30] hover:text-white"><X className="size-3.5" /></button>
+                        </div>
+                      ))}
+                      {buttonSettings.labels.length === 0 && <p className="text-sm text-[#849188]">Nenhuma frase cadastrada.</p>}
+                    </div>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Input value={buttonDraft} onChange={(event) => setButtonDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addButtonLabel(); } }} maxLength={25} placeholder="Ex.: GARANTIR DESCONTO" className="h-11 rounded-lg border-[#34423a] bg-[#080c09]" />
+                      <Button onClick={addButtonLabel} type="button" variant="outline" className="h-11 shrink-0 rounded-lg border-[#2e7041] bg-[#112a19] text-[#8ef1aa] hover:bg-[#183b24]"><Plus /> Adicionar</Button>
+                    </div>
+                    <p className="text-xs leading-5 text-[#7f9085]">Até 8 opções, com no máximo 25 caracteres. O link também continua no texto da mensagem como segurança.</p>
+                    <Button onClick={() => void saveButtonSettings()} disabled={buttonSettingsSaving} className="h-11 rounded-lg bg-[#24c75a] px-5 font-semibold text-[#04140a] hover:bg-[#46df75]">{buttonSettingsSaving ? <LoaderCircle className="animate-spin" /> : <BadgeCheck />} Salvar botões</Button>
+                  </div>
+                  <div className="rounded-2xl border border-[#26372d] bg-[#07100a] p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#6f8376]">Prévia no WhatsApp</p>
+                    <div className="mt-4 rounded-xl bg-[#0b2014] p-3 text-sm leading-6 text-[#e7f1e9] shadow-inner">🔥 Oferta encontrada<br />Link convertido pronto para comprar.</div>
+                    <div className="mt-2 grid min-h-11 place-items-center rounded-xl border border-[#275e37] bg-[#102b19] px-3 text-center text-sm font-bold text-[#67ed8b]">
+                      {buttonSettings.labels[0] || "COMPRAR AGORA"}
+                    </div>
+                    <p className="mt-3 text-center text-xs text-[#718078]">A frase muda aleatoriamente entre as opções cadastradas.</p>
+                  </div>
+                </CardContent>
+              </Card>
             </TabsContent>
 
             <TabsContent value="automation" id="automacao">
