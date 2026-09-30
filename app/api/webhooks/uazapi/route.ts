@@ -212,6 +212,21 @@ export async function POST(request: Request) {
     }
 
     const outgoingText = replaceConvertedLinks(extracted.text, products).slice(0, 4096);
+    const primaryProduct = converted[0];
+    const mercadoLivreCatalogImage = primaryProduct?.store === "mercadolivre" && primaryProduct.imageUrl?.startsWith("https://")
+      ? { file: primaryProduct.imageUrl, mimetype: "image/jpeg", source: "mercadolivre_catalog" }
+      : null;
+    const outgoingImage = mercadoLivreCatalogImage || incomingImage;
+    if (mercadoLivreCatalogImage) {
+      await automationLog({
+        level: "success",
+        stage: "product_image",
+        message: `Imagem oficial do Mercado Livre encontrada para ${primaryProduct.productCode}.`,
+        groupJid: extracted.chatJid,
+        productId: primaryProduct.id,
+        details: { productCode: primaryProduct.productCode, imageUrl: primaryProduct.imageUrl, replacedIncomingImage: Boolean(incomingImage) },
+      });
+    }
     if (extracted.isImage && !incomingImage) {
       await automationLog({
         level: "warning",
@@ -221,13 +236,13 @@ export async function POST(request: Request) {
         details: { messageId: extracted.messageId, messageType: extracted.messageType },
       });
     }
-    const fallbackEndpoint = incomingImage ? "/send/media" : "/send/text";
-    const fallbackBody = incomingImage ? {
+    const fallbackEndpoint = outgoingImage ? "/send/media" : "/send/text";
+    const fallbackBody = outgoingImage ? {
       number: route.destinationJid,
       type: "image",
-      file: incomingImage.file,
+      file: outgoingImage.file,
       text: outgoingText,
-      mimetype: incomingImage.mimetype,
+      mimetype: outgoingImage.mimetype,
       async: true,
       track_source: "promozap",
       track_id: extracted.messageId,
@@ -243,7 +258,7 @@ export async function POST(request: Request) {
     const buttonLabel = buttonSettings.enabled && buttonSettings.labels.length
       ? buttonSettings.labels[Math.floor(Math.random() * buttonSettings.labels.length)]
       : "";
-    const buttonUrl = converted[0]?.affiliateUrl || "";
+    const buttonUrl = primaryProduct?.affiliateUrl || "";
     let buttonSent = false;
     let usedFallback = false;
     let response: Response;
@@ -257,7 +272,7 @@ export async function POST(request: Request) {
           type: "button",
           text: outgoingText,
           choices: [`${buttonLabel}|${buttonUrl}`],
-          ...(incomingImage ? { imageButton: incomingImage.file } : {}),
+          ...(outgoingImage ? { imageButton: outgoingImage.file } : {}),
           footerText: "Promozap",
           async: true,
           track_source: "promozap",
@@ -299,15 +314,16 @@ export async function POST(request: Request) {
     await automationLog({
       level: "success",
       stage: "sent",
-      message: `Oferta enviada ao grupo de destino (${converted.length} produto(s))${incomingImage ? " com a foto original" : ""}${buttonSent ? ` e botão “${buttonLabel}”` : ""}.`,
+      message: `Oferta enviada ao grupo de destino (${converted.length} produto(s))${mercadoLivreCatalogImage ? " com a foto oficial do Mercado Livre" : incomingImage ? " com a foto original" : ""}${buttonSent ? ` e botão “${buttonLabel}”` : ""}.`,
       groupJid: route.destinationJid,
       details: {
         sourceGroup: extracted.chatJid,
         destinationGroup: route.destinationJid,
         providerStatus: response.status,
         messageId: extracted.messageId,
-        imageForwarded: Boolean(incomingImage),
-        mediaSource: incomingImage?.source || null,
+        imageForwarded: Boolean(outgoingImage),
+        mediaSource: outgoingImage?.source || null,
+        incomingImageReplaced: Boolean(mercadoLivreCatalogImage && incomingImage),
         buttonSent,
         buttonLabel: buttonLabel || null,
         buttonUrl: buttonSent ? buttonUrl : null,

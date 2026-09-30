@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { extractUrls, resolveProductUrl } from "@/lib/link-resolver";
 import { generateMercadoLivreLinks } from "@/lib/mercadolivre-affiliate";
+import { getMercadoLivreProductVisual } from "@/lib/mercadolivre-product";
 import { readIntegrationSecret } from "@/lib/integration-secret";
 
 export type ProductStatus = "found" | "converted" | "waiting_credentials" | "unsupported" | "error" | "sent";
@@ -111,6 +112,9 @@ export async function processProductInput(input: {
 
   for (const sourceUrl of urls) {
     const resolved = await resolveProductUrl(sourceUrl);
+    const mercadoLivreVisual = resolved.store === "mercadolivre" && resolved.productCode
+      ? await getMercadoLivreProductVisual(resolved.productCode, resolved.resolvedUrl, cookies)
+      : null;
     let affiliateUrl: string | null = null;
     let status: ProductStatus = resolved.store === "unknown" ? "unsupported" : "found";
     let errorMessage = resolved.errorMessage;
@@ -138,7 +142,8 @@ export async function processProductInput(input: {
 
     const record = await saveProduct({
       ...resolved,
-      imageUrl: cleanText(input.originalImageUrl, 4_000) || resolved.imageUrl,
+      title: mercadoLivreVisual?.title || resolved.title,
+      imageUrl: mercadoLivreVisual?.imageUrl || cleanText(input.originalImageUrl, 4_000) || resolved.imageUrl,
       affiliateUrl,
       status,
       sourceGroup: cleanText(input.sourceGroup, 160),
