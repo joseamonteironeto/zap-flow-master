@@ -1,7 +1,6 @@
 import { env } from "cloudflare:workers";
 import { NextResponse } from "next/server";
 import { automationLog } from "@/lib/automation-log";
-import { getAutomationButtonSettings } from "@/lib/automation-buttons";
 import { extractUrls } from "@/lib/link-resolver";
 import { markProductsSent, processProductInput } from "@/lib/product-pipeline";
 
@@ -56,38 +55,6 @@ function extractMessage(payload: UnknownRecord) {
     fromMe: Boolean(message.fromMe ?? key.fromMe ?? data.fromMe),
     wasSentByApi: Boolean(message.wasSentByApi ?? data.wasSentByApi),
   };
-}
-
-async function downloadIncomingImage(
-  serverUrl: string,
-  token: string,
-  extracted: ReturnType<typeof extractMessage>,
-) {
-  const hasThumbnail = extracted.thumbnail.length > 100;
-  if (!extracted.isImage) return null;
-  if (extracted.mediaUrl) return { file: extracted.mediaUrl, mimetype: extracted.mimetype || undefined, source: "webhook" };
-
-  const ids = [...new Set([extracted.downloadId, extracted.alternateDownloadId].filter(Boolean))];
-  for (const id of ids) {
-    try {
-      const response = await fetch(`${serverUrl}/message/download`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", token },
-        body: JSON.stringify({ id, return_link: true, return_base64: false }),
-        signal: AbortSignal.timeout(20_000),
-      });
-      if (!response.ok) continue;
-      const result = await response.json() as { fileURL?: unknown; fileUrl?: unknown; mimetype?: unknown };
-      const file = firstString(result.fileURL, result.fileUrl);
-      if (file) return { file, mimetype: firstString(result.mimetype) || undefined, source: "download" };
-    } catch {
-      // Try the alternate provider id, then use the thumbnail fallback.
-    }
-  }
-  if (hasThumbnail) {
-    return { file: extracted.thumbnail, mimetype: extracted.mimetype || "image/jpeg", source: "thumbnail" };
-  }
-  return null;
 }
 
 async function claimMessage(messageId: string, groupJid: string) {
@@ -216,13 +183,18 @@ export async function POST(request: Request) {
     const serverUrl = runtime.UAZAPI_SERVER_URL?.replace(/\/$/, "") || "";
     const token = runtime.UAZAPI_INSTANCE_TOKEN || "";
     if (!serverUrl || !token) throw new Error("Credenciais UAZAPI não configuradas no servidor.");
-    const incomingImage = await downloadIncomingImage(serverUrl, token, extracted);
-    const originalImageUrl = incomingImage?.file.startsWith("https://") ? incomingImage.file : undefined;
+    if (extracted.isImage) {
+      await automationLog({
+        stage: "media_ignored",
+        message: "A imagem recebida do grupo foi ignorada; será usada somente a imagem oficial do produto.",
+        groupJid: extracted.chatJid,
+        details: { messageId: extracted.messageId, messageType: extracted.messageType },
+      });
+    }
     const products = await processProductInput({
       message: extracted.text,
       sourceGroup: route.name || route.jid,
       destinationGroup: route.destinationJid,
-      originalImageUrl,
     });
     const converted = products.filter((product) => product.status === "converted" && product.affiliateUrl);
     await automationLog({
@@ -240,7 +212,7 @@ export async function POST(request: Request) {
     const outgoingText = replaceConvertedLinks(extracted.text, products).slice(0, 4096);
     const primaryProduct = converted[0];
     const officialProductImage = trustedCatalogImage(primaryProduct?.store, primaryProduct?.imageUrl);
-    const outgoingImage = officialProductImage || incomingImage;
+    const outgoingImage = officialProductImage;
     if (officialProductImage) {
       const storeName = primaryProduct.store === "amazon" ? "Amazon" : "Mercado Livre";
       await automationLog({
@@ -249,16 +221,16 @@ export async function POST(request: Request) {
         message: `Imagem oficial da ${storeName} encontrada para ${primaryProduct.productCode}.`,
         groupJid: extracted.chatJid,
         productId: primaryProduct.id,
-        details: { productCode: primaryProduct.productCode, imageUrl: primaryProduct.imageUrl, mediaSource: officialProductImage.source, replacedIncomingImage: Boolean(incomingImage) },
+        details: { productCode: primaryProduct.productCode, imageUrl: primaryProduct.imageUrl, mediaSource: officialProductImage.source, ignoredIncomingImage: extracted.isImage },
       });
     }
-    if (extracted.isImage && !incomingImage) {
+    if (!officialProductImage) {
       await automationLog({
         level: "warning",
         stage: "media",
-        message: "A oferta tinha imagem, mas a UAZAPI não disponibilizou o arquivo; o texto será enviado normalmente.",
+        message: "A loja não disponibilizou uma imagem oficial; a oferta será enviada apenas como texto.",
         groupJid: extracted.chatJid,
-        details: { messageId: extracted.messageId, messageType: extracted.messageType },
+        details: { messageId: extracted.messageId, productCode: primaryProduct.productCode },
       });
     }
     const fallbackEndpoint = outgoingImage ? "/send/media" : "/send/text";
@@ -279,13 +251,6 @@ export async function POST(request: Request) {
       track_source: "promozap",
       track_id: extracted.messageId,
     };
-    const buttonSettings = await getAutomationButtonSettings();
-    const buttonLabel = buttonSettings.enabled && buttonSettings.labels.length
-      ? buttonSettings.labels[Math.floor(Math.random() * buttonSettings.labels.length)]
-      : "";
-    const buttonUrl = primaryProduct?.affiliateUrl || "";
-    let buttonSent = false;
-    let buttonProviderStatus: number | null = null;
     const response = await fetch(`${serverUrl}${fallbackEndpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", token },
@@ -295,43 +260,12 @@ export async function POST(request: Request) {
     const providerResponse = await response.text();
     if (!response.ok) throw new Error(`UAZAPI respondeu HTTP ${response.status}: ${providerResponse.slice(0, 300)}`);
 
-    if (buttonLabel && buttonUrl) {
-      const buttonResponse = await fetch(`${serverUrl}/send/menu`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", token },
-        body: JSON.stringify({
-          number: route.destinationJid,
-          type: "button",
-          text: "Toque no botão abaixo para abrir a oferta:",
-          choices: [`${buttonLabel}|${buttonUrl}`],
-          footerText: "\u200B",
-          delay: 1200,
-          async: true,
-          track_source: "promozap",
-          track_id: `${extracted.messageId}:button`,
-        }),
-        signal: AbortSignal.timeout(20_000),
-      });
-      buttonProviderStatus = buttonResponse.status;
-      buttonSent = buttonResponse.ok;
-      if (!buttonResponse.ok) {
-        const menuError = await buttonResponse.text();
-        await automationLog({
-          level: "warning",
-          stage: "button",
-          message: `A oferta normal foi enviada, mas a UAZAPI recusou o botão “${buttonLabel}”.`,
-          groupJid: route.destinationJid,
-          details: { providerStatus: buttonResponse.status, providerResponse: menuError.slice(0, 300) },
-        });
-      }
-    }
-
     await markProductsSent(converted.map((product) => product.id), route.destinationJid);
     await finishMessage(extracted.messageId, "sent");
     await automationLog({
       level: "success",
       stage: "sent",
-      message: `Oferta enviada ao grupo de destino (${converted.length} produto(s))${officialProductImage ? ` com a foto oficial da ${primaryProduct.store === "amazon" ? "Amazon" : "Mercado Livre"}` : incomingImage ? " com a foto original" : ""}${buttonSent ? ` e botão “${buttonLabel}”` : ""}.`,
+      message: `Oferta enviada ao grupo de destino (${converted.length} produto(s))${officialProductImage ? ` com a foto oficial da ${primaryProduct.store === "amazon" ? "Amazon" : "Mercado Livre"}` : " sem foto"}.`,
       groupJid: route.destinationJid,
       details: {
         sourceGroup: extracted.chatJid,
@@ -340,11 +274,8 @@ export async function POST(request: Request) {
         messageId: extracted.messageId,
         imageForwarded: Boolean(outgoingImage),
         mediaSource: outgoingImage?.source || null,
-        incomingImageReplaced: Boolean(officialProductImage && incomingImage),
-        buttonSent,
-        buttonLabel: buttonLabel || null,
-        buttonUrl: buttonSent ? buttonUrl : null,
-        buttonProviderStatus,
+        incomingImageIgnored: extracted.isImage,
+        buttonSent: false,
         messageFormat: outgoingImage ? "normal_image_with_caption" : "normal_text",
       },
     });
