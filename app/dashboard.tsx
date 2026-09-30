@@ -12,6 +12,7 @@ import {
   CircleAlert,
   Copy,
   Cookie,
+  Database,
   Eye,
   EyeOff,
   ExternalLink,
@@ -117,6 +118,7 @@ type ProductRecord = {
   foundAt: string;
   lastSeenAt: string;
   sentAt?: string | null;
+  updatedAt?: string | null;
 };
 
 type AutomationLog = {
@@ -256,6 +258,7 @@ export default function Dashboard() {
   const [productInput, setProductInput] = useState("");
   const [productSearch, setProductSearch] = useState("");
   const [productStatus, setProductStatus] = useState("all");
+  const [catalogStore, setCatalogStore] = useState("all");
   const [productsLoading, setProductsLoading] = useState(false);
   const [productResolving, setProductResolving] = useState(false);
   const [productsError, setProductsError] = useState("");
@@ -412,6 +415,16 @@ export default function Dashboard() {
     { value: productTotals.converted || 0, label: "links convertidos", Icon: Link2 },
     { value: productTotals.sent || 0, label: "ofertas enviadas", Icon: Send },
   ];
+  const catalogProducts = useMemo(() => products.filter((product) =>
+    product.status === "sent"
+    && (product.store === "amazon" || product.store === "mercadolivre")
+    && (catalogStore === "all" || product.store === catalogStore)
+  ), [products, catalogStore]);
+  const catalogStatItems = [
+    { value: catalogProducts.length, label: "produtos enviados", Icon: Database },
+    { value: catalogProducts.filter((product) => product.store === "mercadolivre").length, label: "Mercado Livre", Icon: ShoppingBag },
+    { value: catalogProducts.filter((product) => product.store === "amazon").length, label: "Amazon", Icon: PackageSearch },
+  ];
 
   const convertedAmazonUrl = useMemo(() => {
     const asin = testUrl.match(/\/(?:dp|gp\/product|gp\/aw\/d)\/([A-Z0-9]{10})(?:[/?]|$)/i)?.[1]?.toUpperCase();
@@ -503,7 +516,8 @@ export default function Dashboard() {
     setProductsError("");
     try {
       const params = new URLSearchParams();
-      if (productStatus !== "all") params.set("status", productStatus);
+      const requestedStatus = activeTab === "catalog" ? "sent" : productStatus;
+      if (requestedStatus !== "all") params.set("status", requestedStatus);
       if (productSearch.trim()) params.set("search", productSearch.trim());
       const response = await fetch(`/api/products?${params.toString()}`);
       const result = await response.json() as { products?: ProductRecord[]; totals?: Record<string, number>; error?: string };
@@ -623,11 +637,11 @@ export default function Dashboard() {
   }
 
   useEffect(() => {
-    if (activeTab === "products") void loadProducts();
+    if (activeTab === "products" || activeTab === "catalog") void loadProducts();
   }, [activeTab, productStatus]);
 
   useEffect(() => {
-    if (activeTab !== "products") return;
+    if (activeTab !== "products" && activeTab !== "catalog") return;
     const timer = window.setInterval(() => void loadProducts(), 10_000);
     return () => window.clearInterval(timer);
   }, [activeTab, productStatus, productSearch]);
@@ -686,6 +700,7 @@ export default function Dashboard() {
   const pageMeta = {
     groups: ["Grupos", "Organize fontes, destinos e categorias da operação."],
     products: ["Produtos encontrados", "Acompanhe cada link identificado, convertido e enviado."],
+    catalog: ["Dados dos produtos", "Veja tudo o que foi extraído das ofertas enviadas da Amazon e do Mercado Livre."],
     affiliates: ["Afiliados", "Defina como os links encontrados serão convertidos."],
     mercadolivre: ["Gerador Mercado Livre", "Gere links com sua tag e sua sessão de afiliado."],
     automation: ["Automação", "Acompanhe o fluxo das ofertas entre os grupos."],
@@ -705,6 +720,7 @@ export default function Dashboard() {
               {[
                 ["groups", "Grupos", UsersRound],
                 ["products", "Produtos", PackageSearch],
+                ["catalog", "Dados dos produtos", Database],
                 ["affiliates", "Afiliados", Link2],
                 ["mercadolivre", "Gerador ML", KeyRound],
                 ["automation", "Automação", Bot],
@@ -744,7 +760,7 @@ export default function Dashboard() {
             </div>
 
           <div className="mb-6 grid grid-cols-3 overflow-hidden rounded-2xl border border-[#27322b] bg-[#0b100d] shadow-[0_18px_50px_rgba(0,0,0,.28)]">
-            {(activeTab === "products" ? productStatItems : statItems).map(({ value, label, Icon }, index) => (
+            {(activeTab === "products" ? productStatItems : activeTab === "catalog" ? catalogStatItems : statItems).map(({ value, label, Icon }, index) => (
               <div key={label} className={`px-3 py-4 sm:px-5 ${index ? "border-l border-[#27322b]" : ""}`}>
                 <Icon className="mb-2 size-4 text-[#00a947]" />
                 <p className="text-2xl font-extrabold tracking-tight">{value}</p>
@@ -760,6 +776,7 @@ export default function Dashboard() {
             <TabsList className="h-12 w-full justify-start overflow-x-auto rounded-xl border border-[#27322b] bg-[#0b100d] p-1 lg:hidden">
               <TabsTrigger value="groups" className="h-10 min-w-28 rounded-lg px-4">Grupos</TabsTrigger>
               <TabsTrigger value="products" className="h-10 min-w-28 rounded-lg px-4">Produtos</TabsTrigger>
+              <TabsTrigger value="catalog" className="h-10 min-w-40 rounded-lg px-4">Dados dos produtos</TabsTrigger>
               <TabsTrigger value="affiliates" className="h-10 min-w-28 rounded-lg px-4">Afiliados</TabsTrigger>
               <TabsTrigger value="mercadolivre" className="h-10 min-w-32 rounded-lg px-4 data-[state=active]:bg-[#ffe600] data-[state=active]:text-[#231f00]">Gerador ML</TabsTrigger>
               <TabsTrigger value="automation" className="h-10 min-w-28 rounded-lg px-4">Automação</TabsTrigger>
@@ -934,6 +951,80 @@ export default function Dashboard() {
                     </Card>
                   ))}
                 </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="catalog" id="dados-dos-produtos">
+              <div className="space-y-4">
+                <Card className="border-[#27322b] bg-[#0b100d] shadow-none">
+                  <CardContent className="grid gap-3 p-4 md:grid-cols-[minmax(0,1fr)_220px_auto]">
+                    <div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#718079]" /><Input value={productSearch} onChange={(event) => setProductSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void loadProducts(); }} placeholder="Buscar título, código ou link" className="h-11 rounded-xl border-[#34423a] bg-[#080c09] pl-10" /></div>
+                    <NativeSelect value={catalogStore} onChange={(event) => setCatalogStore(event.target.value)} className="h-11 w-full rounded-xl border-[#34423a] bg-[#080c09]">
+                      <NativeSelectOption value="all">Amazon e Mercado Livre</NativeSelectOption>
+                      <NativeSelectOption value="mercadolivre">Somente Mercado Livre</NativeSelectOption>
+                      <NativeSelectOption value="amazon">Somente Amazon</NativeSelectOption>
+                    </NativeSelect>
+                    <Button onClick={() => void loadProducts()} variant="outline" className="h-11 rounded-xl border-[#34423a] bg-[#111813] text-white hover:bg-[#19231c]"><RefreshCw className={productsLoading ? "animate-spin" : ""} /> Atualizar</Button>
+                  </CardContent>
+                </Card>
+
+                <div className="rounded-xl border border-[#244c31] bg-[#0d1d12] p-4 text-sm leading-6 text-[#a7cbb2]">
+                  Esta tela mostra todos os campos que a operação armazena hoje: identificação, imagem oficial, links original, resolvido e convertido, grupos, mensagem, redirecionamentos, ocorrências e datas. Preço, estoque, vendedor e avaliações só aparecem futuramente quando forem obtidos por uma API oficial e confiável.
+                </div>
+
+                {productsError && <div className="flex items-start gap-3 rounded-xl border border-[#74443c] bg-[#251412] p-4 text-sm text-[#ffaaa2]"><CircleAlert className="mt-0.5 size-4 shrink-0" /><p>{productsError}</p></div>}
+                {productsLoading && products.length === 0 ? (
+                  <Card className="border-[#27322b] bg-[#0b100d] shadow-none"><CardContent className="flex min-h-56 items-center justify-center gap-3 text-sm text-[#94a69b]"><LoaderCircle className="size-5 animate-spin text-[#62ef8b]" /> Carregando dados...</CardContent></Card>
+                ) : catalogProducts.length === 0 ? (
+                  <Card className="border-[#27322b] bg-[#0b100d] shadow-none"><CardContent className="flex min-h-56 flex-col items-center justify-center px-6 text-center"><Database className="mb-3 size-9 text-[#567061]" /><p className="font-semibold">Nenhum produto enviado nesse filtro</p><p className="mt-2 text-sm text-[#94a69b]">Assim que uma oferta da Amazon ou Mercado Livre for enviada, os dados completos aparecerão aqui.</p></CardContent></Card>
+                ) : (
+                  <div className="grid gap-4 2xl:grid-cols-2">
+                    {catalogProducts.map((product) => {
+                      const fields = [
+                        ["Loja", product.store === "amazon" ? "Amazon" : "Mercado Livre"],
+                        ["ID do produto", product.productCode || "Não identificado"],
+                        ["Situação", productStatusLabel(product.status)],
+                        ["Grupo de origem", product.sourceGroup || "Não informado"],
+                        ["Grupo de destino", product.destinationGroup || "Não informado"],
+                        ["Redirecionamentos", String(product.redirectCount)],
+                        ["Ocorrências", String(product.occurrences)],
+                        ["Encontrado em", new Date(product.foundAt).toLocaleString("pt-BR")],
+                        ["Visto por último", new Date(product.lastSeenAt).toLocaleString("pt-BR")],
+                        ["Enviado em", product.sentAt ? new Date(product.sentAt).toLocaleString("pt-BR") : "Não informado"],
+                        ["Atualizado em", product.updatedAt ? new Date(product.updatedAt).toLocaleString("pt-BR") : "Não informado"],
+                      ];
+                      const links = [
+                        ["Link recebido", product.sourceUrl],
+                        ["Link final resolvido", product.resolvedUrl],
+                        ["Link de afiliado enviado", product.affiliateUrl],
+                        ["Imagem oficial", product.imageUrl],
+                      ].filter((item): item is [string, string] => Boolean(item[1]));
+                      return (
+                        <Card key={product.id} className="overflow-hidden border-[#27322b] bg-[#0b100d] shadow-none">
+                          <CardHeader className="border-b border-[#27322b] bg-[#0d1510]">
+                            <div className="flex items-start gap-4">
+                              <div className="size-20 shrink-0 overflow-hidden rounded-xl border border-[#2f3d34] bg-[#080c09]">
+                                {product.imageUrl ? <img src={product.imageUrl} alt={product.title || "Produto"} loading="lazy" className="h-full w-full object-contain" /> : <div className="grid h-full place-items-center"><ShoppingBag className="size-6 text-[#607267]" /></div>}
+                              </div>
+                              <div className="min-w-0 flex-1"><div className="flex flex-wrap gap-2"><Badge className={product.store === "amazon" ? "bg-[#ff9900] text-[#231500]" : "bg-[#ffe600] text-[#231f00]"}>{product.store === "amazon" ? "Amazon" : "Mercado Livre"}</Badge><Badge className="border border-[#2d8a4b] bg-[#153520] text-[#8af3a5]">Enviado</Badge></div><CardTitle className="mt-3 line-clamp-2 text-lg leading-6">{product.title || product.productCode || "Produto sem título"}</CardTitle><CardDescription className="mt-1 break-all">Registro {product.id}</CardDescription></div>
+                            </div>
+                          </CardHeader>
+                          <CardContent className="space-y-5 p-4 sm:p-5">
+                            <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+                              {fields.map(([label, value]) => <div key={label} className="min-w-0 border-b border-[#202a24] pb-2"><p className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#718079]">{label}</p><p className="mt-1 break-words text-sm text-[#e8f1eb]">{value}</p></div>)}
+                            </div>
+                            <div className="space-y-3">
+                              {links.map(([label, value]) => <div key={label} className="rounded-xl border border-[#27322b] bg-[#080c09] p-3"><div className="flex items-center justify-between gap-3"><p className="text-xs font-bold text-[#94a69b]">{label}</p><Button variant="ghost" size="sm" onClick={() => { void navigator.clipboard.writeText(value); toast.success(`${label} copiado.`); }} className="h-7 px-2 text-[#62ef8b] hover:bg-[#142019]"><Copy className="size-3.5" /> Copiar</Button></div><a href={value} target="_blank" rel="noreferrer" className="mt-2 block break-all text-xs leading-5 text-[#53bdeb] underline underline-offset-2">{value}</a></div>)}
+                            </div>
+                            <div><p className="mb-2 text-xs font-bold uppercase tracking-[0.1em] text-[#718079]">Mensagem capturada</p><div className="max-h-56 overflow-auto rounded-xl border border-[#27322b] bg-[#080c09] p-3"><WhatsAppMessage text={product.messageExcerpt || "Mensagem não armazenada."} /></div></div>
+                            {product.errorMessage && <div className="rounded-xl border border-[#66532e] bg-[#241d0c] p-3 text-sm text-[#e6c47d]">{product.errorMessage}</div>}
+                            <details className="rounded-xl border border-[#27322b] bg-[#080c09] open:bg-[#060906]"><summary className="cursor-pointer px-3 py-3 text-sm font-semibold text-[#b7c4bc]">Ver registro bruto (JSON)</summary><div className="border-t border-[#27322b] p-3"><Button variant="outline" size="sm" onClick={() => { void navigator.clipboard.writeText(JSON.stringify(product, null, 2)); toast.success("JSON copiado."); }} className="mb-3 border-[#34423a] bg-[#111813] text-white"><Copy /> Copiar JSON</Button><pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all text-xs leading-5 text-[#8fd9a4]">{JSON.stringify(product, null, 2)}</pre></div></details>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </TabsContent>
 

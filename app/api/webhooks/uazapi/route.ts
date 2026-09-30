@@ -121,6 +121,29 @@ function replaceConvertedLinks(message: string, products: Awaited<ReturnType<typ
   return output;
 }
 
+function trustedCatalogImage(store: string | undefined, imageUrl: string | null | undefined) {
+  if (!imageUrl) return null;
+  try {
+    const url = new URL(imageUrl);
+    if (url.protocol !== "https:") return null;
+    const hostname = url.hostname.toLowerCase();
+    const trusted = store === "mercadolivre"
+      ? hostname === "mlstatic.com" || hostname.endsWith(".mlstatic.com") || hostname === "mercadolivre.com.br" || hostname.endsWith(".mercadolivre.com.br")
+      : store === "amazon"
+        ? hostname === "media-amazon.com" || hostname.endsWith(".media-amazon.com") || hostname === "ssl-images-amazon.com" || hostname.endsWith(".ssl-images-amazon.com")
+        : false;
+    if (!trusted) return null;
+    const extension = url.pathname.toLowerCase();
+    return {
+      file: url.toString(),
+      mimetype: extension.endsWith(".webp") ? "image/webp" : extension.endsWith(".png") ? "image/png" : "image/jpeg",
+      source: store === "amazon" ? "amazon_catalog_cache" : "mercadolivre_catalog_cache",
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(request: Request) {
   const runtime = env as unknown as {
     PROMOZAP_WEBHOOK_SECRET?: string;
@@ -213,9 +236,7 @@ export async function POST(request: Request) {
 
     const outgoingText = replaceConvertedLinks(extracted.text, products).slice(0, 4096);
     const primaryProduct = converted[0];
-    const officialProductImage = (primaryProduct?.imageSource === "mercadolivre_catalog" || primaryProduct?.imageSource === "amazon_catalog") && primaryProduct.imageUrl?.startsWith("https://")
-      ? { file: primaryProduct.imageUrl, mimetype: "image/jpeg", source: primaryProduct.imageSource }
-      : null;
+    const officialProductImage = trustedCatalogImage(primaryProduct?.store, primaryProduct?.imageUrl);
     const outgoingImage = officialProductImage || incomingImage;
     if (officialProductImage) {
       const storeName = primaryProduct.store === "amazon" ? "Amazon" : "Mercado Livre";
@@ -225,7 +246,7 @@ export async function POST(request: Request) {
         message: `Imagem oficial da ${storeName} encontrada para ${primaryProduct.productCode}.`,
         groupJid: extracted.chatJid,
         productId: primaryProduct.id,
-        details: { productCode: primaryProduct.productCode, imageUrl: primaryProduct.imageUrl, replacedIncomingImage: Boolean(incomingImage) },
+        details: { productCode: primaryProduct.productCode, imageUrl: primaryProduct.imageUrl, mediaSource: officialProductImage.source, replacedIncomingImage: Boolean(incomingImage) },
       });
     }
     if (extracted.isImage && !incomingImage) {
@@ -274,7 +295,6 @@ export async function POST(request: Request) {
           text: outgoingText,
           choices: [`${buttonLabel}|${buttonUrl}`],
           ...(outgoingImage ? { imageButton: outgoingImage.file } : {}),
-          footerText: "Promozap",
           async: true,
           track_source: "promozap",
           track_id: extracted.messageId,
