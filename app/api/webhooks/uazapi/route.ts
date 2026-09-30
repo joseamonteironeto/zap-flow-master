@@ -40,6 +40,7 @@ function extractMessage(payload: UnknownRecord) {
   const messageType = firstString(message.messageType, message.type, data.messageType);
   const mimetype = firstString(message.mimetype, image.mimetype, content.mimetype);
   const isImage = /image/i.test(messageType) || mimetype.toLowerCase().startsWith("image/") || Object.keys(image).length > 0;
+  const thumbnail = firstString(image.JPEGThumbnail, image.jpegThumbnail, content.JPEGThumbnail, content.jpegThumbnail);
   return {
     text,
     chatJid,
@@ -50,7 +51,7 @@ function extractMessage(payload: UnknownRecord) {
     mimetype,
     isImage,
     mediaUrl: firstString(message.fileURL, message.fileUrl, data.fileURL, data.fileUrl, content.fileURL, content.fileUrl, image.url),
-    thumbnail: isImage ? firstString(image.JPEGThumbnail, image.jpegThumbnail, content.JPEGThumbnail, content.jpegThumbnail) : "",
+    thumbnail,
     fromMe: Boolean(message.fromMe ?? key.fromMe ?? data.fromMe),
     wasSentByApi: Boolean(message.wasSentByApi ?? data.wasSentByApi),
   };
@@ -61,7 +62,11 @@ async function downloadIncomingImage(
   token: string,
   extracted: ReturnType<typeof extractMessage>,
 ) {
-  if (!extracted.isImage) return null;
+  const hasThumbnail = extracted.thumbnail.length > 100;
+  if (!extracted.isImage && !hasThumbnail) return null;
+  if (!extracted.isImage && hasThumbnail) {
+    return { file: extracted.thumbnail, mimetype: "image/jpeg", source: "link_preview" };
+  }
   if (extracted.mediaUrl) return { file: extracted.mediaUrl, mimetype: extracted.mimetype || undefined, source: "webhook" };
 
   const ids = [...new Set([extracted.downloadId, extracted.alternateDownloadId].filter(Boolean))];
@@ -81,7 +86,7 @@ async function downloadIncomingImage(
       // Try the alternate provider id, then use the thumbnail fallback.
     }
   }
-  if (extracted.thumbnail.length > 100) {
+  if (hasThumbnail) {
     return { file: extracted.thumbnail, mimetype: extracted.mimetype || "image/jpeg", source: "thumbnail" };
   }
   return null;
@@ -142,7 +147,8 @@ export async function POST(request: Request) {
       messageId: extracted.messageId,
       messageType: extracted.messageType,
       hasText: Boolean(extracted.text),
-      hasImage: extracted.isImage,
+      hasImage: extracted.isImage || extracted.thumbnail.length > 100,
+      imageKind: extracted.isImage ? "attachment" : extracted.thumbnail.length > 100 ? "link_preview" : null,
       hasMediaUrl: Boolean(extracted.mediaUrl),
       urlCount: extractUrls(extracted.text).length,
     },
@@ -201,7 +207,7 @@ export async function POST(request: Request) {
     if (!serverUrl || !token) throw new Error("Credenciais UAZAPI não configuradas no servidor.");
     const outgoingText = replaceConvertedLinks(extracted.text, products).slice(0, 4096);
     const incomingImage = await downloadIncomingImage(serverUrl, token, extracted);
-    if (extracted.isImage && !incomingImage) {
+    if ((extracted.isImage || extracted.thumbnail.length > 100) && !incomingImage) {
       await automationLog({
         level: "warning",
         stage: "media",
