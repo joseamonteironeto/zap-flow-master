@@ -15,6 +15,13 @@
       "when": 1790697600000,
       "tag": "0001_product_events",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790784000000,
+      "tag": "0002_uazapi_automation",
+      "breakpoints": true
     }
   ]
 }

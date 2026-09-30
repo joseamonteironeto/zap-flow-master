@@ -42,3 +42,23 @@ export const productEvents = sqliteTable("product_events", {
   sentAt: text("sent_at"),
   updatedAt: text("updated_at").notNull(),
 });
+
+export const processedMessages = sqliteTable("processed_messages", {
+  messageId: text("message_id").primaryKey(),
+  groupJid: text("group_jid"),
+  status: text("status").notNull().default("processing"),
+  errorMessage: text("error_message"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const automationLogs = sqliteTable("automation_logs", {
+  id: text("id").primaryKey(),
+  level: text("level").notNull().default("info"),
+  stage: text("stage").notNull(),
+  message: text("message").notNull(),
+  detailsJson: text("details_json"),
+  groupJid: text("group_jid"),
+  productId: text("product_id"),
+  createdAt: text("created_at").notNull(),
+});

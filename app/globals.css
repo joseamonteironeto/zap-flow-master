@@ -166,3 +166,6 @@ button, input, select { font: inherit; }
 .promozap-light input,
 .promozap-light textarea,
 .promozap-light select { color: #17221b; }
+.promozap-light .promozap-menu-item { color: #17221b !important; }
+.promozap-light .promozap-menu-item:hover { background-color: #e7f1ea !important; color: #07140b !important; }
+.promozap-light .promozap-menu-active { background-color: #bdf4cc !important; color: #07140b !important; }

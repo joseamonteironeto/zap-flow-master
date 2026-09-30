@@ -28,8 +28,10 @@ import {
   ShieldCheck,
   ShoppingBag,
   Smartphone,
+  ScrollText,
   Sun,
   UsersRound,
+  Webhook,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -107,6 +109,17 @@ type ProductRecord = {
   foundAt: string;
   lastSeenAt: string;
   sentAt?: string | null;
+};
+
+type AutomationLog = {
+  id: string;
+  level: "info" | "success" | "warning" | "error";
+  stage: string;
+  message: string;
+  detailsJson?: string | null;
+  groupJid?: string | null;
+  productId?: string | null;
+  createdAt: string;
 };
 
 type ModelContext = {
@@ -203,6 +216,11 @@ export default function Dashboard() {
   const [productStatus, setProductStatus] = useState("all");
   const [productsLoading, setProductsLoading] = useState(false);
   const [productResolving, setProductResolving] = useState(false);
+  const [productsError, setProductsError] = useState("");
+  const [automationLogs, setAutomationLogs] = useState<AutomationLog[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [webhookSettingUp, setWebhookSettingUp] = useState(false);
+  const [webhookActive, setWebhookActive] = useState(false);
 
   async function loadData() {
     setLoading(true);
@@ -412,6 +430,7 @@ export default function Dashboard() {
 
   async function loadProducts() {
     setProductsLoading(true);
+    setProductsError("");
     try {
       const params = new URLSearchParams();
       if (productStatus !== "all") params.set("status", productStatus);
@@ -422,9 +441,46 @@ export default function Dashboard() {
       setProducts(result.products || []);
       setProductTotals(result.totals || {});
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : "Não foi possível carregar os produtos.");
+      const message = caught instanceof Error ? caught.message : "Não foi possível carregar os produtos.";
+      setProductsError(message);
+      toast.error(message);
     } finally {
       setProductsLoading(false);
+    }
+  }
+
+  async function loadAutomationLogs() {
+    setLogsLoading(true);
+    try {
+      const response = await fetch("/api/logs?limit=150", { cache: "no-store" });
+      const result = await response.json() as { logs?: AutomationLog[]; error?: string };
+      if (!response.ok) throw new Error(result.error || "Não foi possível carregar os logs.");
+      setAutomationLogs(result.logs || []);
+    } catch (caught) {
+      if (activeTab === "automation") toast.error(caught instanceof Error ? caught.message : "Não foi possível carregar os logs.");
+    } finally {
+      setLogsLoading(false);
+    }
+  }
+
+  async function setupUazapiWebhook(showToast = true) {
+    setWebhookSettingUp(true);
+    try {
+      const response = await fetch("/api/automation/uazapi", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ serverUrl: whatsapp.serverUrl, token: whatsapp.instanceToken }),
+      });
+      const result = await response.json() as { ok?: boolean; message?: string };
+      if (!response.ok || !result.ok) throw new Error(result.message || "A UAZAPI recusou o webhook.");
+      setWebhookActive(true);
+      if (showToast) toast.success("Automação ativada na UAZAPI.");
+      await loadAutomationLogs();
+    } catch (caught) {
+      setWebhookActive(false);
+      if (showToast) toast.error(caught instanceof Error ? caught.message : "Não foi possível ativar o webhook.");
+    } finally {
+      setWebhookSettingUp(false);
     }
   }
 
@@ -468,6 +524,19 @@ export default function Dashboard() {
     if (activeTab === "products") void loadProducts();
   }, [activeTab, productStatus]);
 
+  useEffect(() => {
+    if (activeTab !== "products") return;
+    const timer = window.setInterval(() => void loadProducts(), 10_000);
+    return () => window.clearInterval(timer);
+  }, [activeTab, productStatus, productSearch]);
+
+  useEffect(() => {
+    if (activeTab !== "automation") return;
+    void loadAutomationLogs();
+    const timer = window.setInterval(() => void loadAutomationLogs(), 6_000);
+    return () => window.clearInterval(timer);
+  }, [activeTab]);
+
   async function testWhatsappConnection() {
     if (!whatsapp.serverUrl.trim() || !whatsapp.instanceToken.trim()) {
       toast.error("Informe a URL e o token da instância.");
@@ -487,6 +556,7 @@ export default function Dashboard() {
       setDemo(false);
       setError("");
       toast.success(`UAZAPI conectada: ${(result.groups || []).length} grupo(s) encontrado(s).`);
+      await setupUazapiWebhook(false);
     } catch (caught) {
       setWhatsappConnected(false);
       toast.error(caught instanceof Error ? caught.message : "Não foi possível conectar à UAZAPI.");
@@ -522,7 +592,7 @@ export default function Dashboard() {
                 ["automation", "Automação", Bot],
                 ["whatsapp", "WhatsApp / UAZAPI", Smartphone],
               ].map(([value, label, Icon]) => (
-                <button key={String(value)} onClick={() => setActiveTab(String(value))} className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left font-medium transition-colors ${activeTab === value ? "bg-[#1b3323] text-[#62ef8b] ring-1 ring-[#3ca85c]/35" : "text-[#94a69b] hover:bg-[#111813] hover:text-white"}`}>
+                <button key={String(value)} onClick={() => setActiveTab(String(value))} className={`promozap-menu-item flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left font-semibold transition-colors ${activeTab === value ? "promozap-menu-active bg-[#62ef8b] text-[#07140b] ring-1 ring-[#80f59f]/55" : "text-[#e0e8e2] hover:bg-[#18221b] hover:text-white"}`}>
                   <Icon className="size-4 shrink-0" /><span className="truncate">{label}</span>
                 </button>
               ))}
@@ -673,6 +743,8 @@ export default function Dashboard() {
                       <Button onClick={() => void loadProducts()} variant="outline" className="h-11 rounded-xl border-[#34423a] bg-[#111813] text-white hover:bg-[#19231c]"><RefreshCw className={productsLoading ? "animate-spin" : ""} /> Atualizar</Button>
                     </CardContent>
                   </Card>
+
+                  {productsError && <div className="flex items-start gap-3 rounded-xl border border-[#74443c] bg-[#251412] p-4 text-sm text-[#ffaaa2]"><CircleAlert className="mt-0.5 size-4 shrink-0" /><div><p className="font-semibold">O histórico não carregou</p><p className="mt-1">{productsError}</p></div></div>}
 
                   {productsLoading && products.length === 0 ? (
                     <Card className="border-[#27322b] bg-[#0b100d] shadow-none"><CardContent className="flex min-h-56 items-center justify-center gap-3 text-sm text-[#94a69b]"><LoaderCircle className="size-5 animate-spin text-[#62ef8b]" /> Carregando histórico...</CardContent></Card>
@@ -831,6 +903,7 @@ export default function Dashboard() {
                     <div className="flex gap-2 rounded-xl border border-[#244c31] bg-[#0d1d12] p-3 text-sm leading-6 text-[#a7cbb2]"><ShieldCheck className="mt-1 size-4 shrink-0 text-[#52e579]" /><p>As credenciais ficam salvas automaticamente neste navegador e são enviadas somente à UAZAPI informada.</p></div>
                     <div className="flex flex-col gap-2 sm:flex-row">
                       <Button onClick={() => void testWhatsappConnection()} disabled={whatsappTesting} className="h-11 rounded-lg bg-[#24c75a] px-5 text-[#04140a] hover:bg-[#46df75]">{whatsappTesting ? <LoaderCircle className="animate-spin" /> : <BadgeCheck />} Testar conexão</Button>
+                      <Button onClick={() => void setupUazapiWebhook()} disabled={webhookSettingUp || (!whatsapp.instanceToken && !whatsappConnected)} variant="outline" className="h-11 rounded-lg border-[#2e7041] bg-[#112a19] text-[#8ef1aa] hover:bg-[#183b24]">{webhookSettingUp ? <LoaderCircle className="animate-spin" /> : <Webhook />} Ativar automação</Button>
                       {whatsapp.instanceToken && <Button onClick={() => { setWhatsapp(emptyWhatsApp); setWhatsappConnected(false); }} variant="outline" className="h-11 rounded-lg border-[#40302d] bg-[#17100e] text-[#ff9b92] hover:bg-[#211512]">Limpar credenciais</Button>}
                     </div>
                   </CardContent>
@@ -839,7 +912,7 @@ export default function Dashboard() {
                 <div className="space-y-4">
                   <Card className="border-[#27322b] bg-[#0b100d] shadow-none">
                     <CardHeader className="pb-3"><CardDescription>Status da conexão</CardDescription><CardTitle className="flex items-center gap-2 text-lg"><span className={`size-2.5 rounded-full ${whatsappConnected ? "bg-[#31d365] shadow-[0_0_0_5px_rgba(49,211,101,.12)]" : "bg-[#6f7771]"}`} />{whatsappConnected ? "Instância conectada" : "Aguardando teste"}</CardTitle></CardHeader>
-                    <CardContent className="space-y-3 text-sm text-[#94a69b]"><div className="flex justify-between gap-3 border-t border-[#27322b] pt-3"><span>Servidor</span><span className="truncate text-right text-white">{whatsapp.serverUrl || "Não informado"}</span></div><div className="flex justify-between gap-3"><span>Grupos encontrados</span><span className="font-medium text-white">{whatsappConnected ? groups.length : "—"}</span></div><div className="flex justify-between gap-3"><span>Salvamento</span><span className="text-[#62ef8b]">Automático</span></div></CardContent>
+                    <CardContent className="space-y-3 text-sm text-[#94a69b]"><div className="flex justify-between gap-3 border-t border-[#27322b] pt-3"><span>Servidor</span><span className="truncate text-right text-white">{whatsapp.serverUrl || "Não informado"}</span></div><div className="flex justify-between gap-3"><span>Grupos encontrados</span><span className="font-medium text-white">{whatsappConnected ? groups.length : "—"}</span></div><div className="flex justify-between gap-3"><span>Webhook</span><span className={webhookActive ? "font-semibold text-[#62ef8b]" : "text-[#c5a96b]"}>{webhookActive ? "Ativo" : "Aguardando ativação"}</span></div><div className="flex justify-between gap-3"><span>Salvamento</span><span className="text-[#62ef8b]">Automático</span></div></CardContent>
                   </Card>
                   <Card className="border-[#27322b] bg-[#0b100d] shadow-none"><CardHeader><CardTitle className="text-base">Próximo passo</CardTitle><CardDescription>Depois de conectar, abra “Grupos” para escolher as fontes, os destinos e as categorias.</CardDescription></CardHeader><CardContent><Button onClick={() => setActiveTab("groups")} variant="outline" className="w-full border-[#2b3830] bg-[#111813] text-white hover:bg-[#19231c]"><UsersRound /> Organizar grupos</Button></CardContent></Card>
                 </div>
@@ -864,9 +937,29 @@ export default function Dashboard() {
                     ))}
                   </div>
                   <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-[#bfe9cc] bg-[#ebfaef] p-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex gap-3"><Settings2 className="mt-0.5 size-5 text-[#008f3d]" /><div><p className="font-bold">Pronto para receber o webhook</p><p className="mt-1 text-sm text-[#52705d]">A próxima etapa liga a captura de mensagens às regras configuradas neste painel.</p></div></div>
-                    <Button variant="outline" className="h-11 rounded-xl border-[#91d7a8] bg-white"><ExternalLink /> Ver configuração</Button>
+                    <div className="flex gap-3"><Webhook className="mt-0.5 size-5 text-[#008f3d]" /><div><p className="font-bold">Envio automático pela UAZAPI</p><p className="mt-1 text-sm text-[#52705d]">Mensagens dos grupos-fonte são convertidas e enviadas ao destino configurado.</p></div></div>
+                    <Button onClick={() => void setupUazapiWebhook()} disabled={webhookSettingUp} variant="outline" className="h-11 rounded-xl border-[#91d7a8] bg-white text-[#102016]">{webhookSettingUp ? <LoaderCircle className="animate-spin" /> : <Webhook />} {webhookActive ? "Reativar webhook" : "Ativar webhook"}</Button>
                   </div>
+                </CardContent>
+              </Card>
+
+              <Card className="mt-5 overflow-hidden border-[#27322b] bg-[#080c09] text-white shadow-none">
+                <CardHeader className="grid gap-3 border-b border-[#27322b] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                  <div><CardTitle className="flex items-center gap-2 text-lg"><ScrollText className="size-5 text-[#62ef8b]" /> Log provisório da UAZAPI</CardTitle><CardDescription className="mt-1 text-[#94a69b]">Atualiza automaticamente a cada seis segundos.</CardDescription></div>
+                  <Button onClick={() => void loadAutomationLogs()} disabled={logsLoading} variant="outline" className="h-10 rounded-lg border-[#34423a] bg-[#111813] text-white hover:bg-[#19231c]"><RefreshCw className={logsLoading ? "animate-spin" : ""} /> Atualizar</Button>
+                </CardHeader>
+                <CardContent className="max-h-[520px] space-y-2 overflow-y-auto p-3 sm:p-4">
+                  {logsLoading && automationLogs.length === 0 ? (
+                    <div className="flex min-h-40 items-center justify-center gap-3 text-sm text-[#94a69b]"><LoaderCircle className="size-5 animate-spin text-[#62ef8b]" /> Carregando eventos...</div>
+                  ) : automationLogs.length === 0 ? (
+                    <div className="flex min-h-40 flex-col items-center justify-center text-center"><ScrollText className="mb-3 size-8 text-[#536158]" /><p className="font-semibold">Nenhum evento recebido ainda</p><p className="mt-1 text-sm text-[#94a69b]">Ative o webhook e envie um link em um grupo-fonte.</p></div>
+                  ) : automationLogs.map((entry) => (
+                    <div key={entry.id} className="grid gap-2 rounded-xl border border-[#27322b] bg-[#0d1310] p-3 sm:grid-cols-[116px_minmax(0,1fr)_auto] sm:items-start">
+                      <span className={`w-fit rounded-full border px-2 py-1 text-xs font-bold ${entry.level === "success" ? "border-[#2d7543] bg-[#12301c] text-[#7cf399]" : entry.level === "error" ? "border-[#784235] bg-[#2a1612] text-[#ff9b92]" : entry.level === "warning" ? "border-[#6e5d25] bg-[#29220b] text-[#f0d274]" : "border-[#3b4b41] bg-[#18201b] text-[#b8c6bc]"}`}>{entry.stage}</span>
+                      <div className="min-w-0"><p className="text-sm font-medium leading-6 text-[#eef6f0]">{entry.message}</p>{entry.groupJid && <p className="mt-1 truncate text-xs text-[#7f9085]">Grupo: {entry.groupJid}</p>}</div>
+                      <time className="text-xs text-[#738078]">{new Date(entry.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
+                    </div>
+                  ))}
                 </CardContent>
               </Card>
             </TabsContent>
