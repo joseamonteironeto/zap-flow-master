@@ -10,6 +10,11 @@ function record(value: unknown): UnknownRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? value as UnknownRecord : {};
 }
 
+function recordLike(value: unknown): UnknownRecord {
+  if (typeof value !== "string") return record(value);
+  try { return record(JSON.parse(value)); } catch { return {}; }
+}
+
 function firstString(...values: unknown[]) {
   return values.find((value): value is string => typeof value === "string" && value.trim().length > 0)?.trim() || "";
 }
@@ -19,7 +24,7 @@ function extractMessage(payload: UnknownRecord) {
   const message = record(data.message || payload.message || data);
   const key = record(message.key);
   const chat = record(data.chat || message.chat || payload.chat);
-  const content = record(message.message || message.content);
+  const content = recordLike(message.message || message.content);
   const extended = record(content.extendedTextMessage);
   const image = record(content.imageMessage);
   const video = record(content.videoMessage);
@@ -32,13 +37,54 @@ function extractMessage(payload: UnknownRecord) {
     message.chatid, message.chatId, message.remoteJid, key.remoteJid,
     data.chatid, data.chatId, data.remoteJid, chat.wa_chatid, chat.JID, payload.chatid,
   );
+  const messageType = firstString(message.messageType, message.type, data.messageType);
+  const mimetype = firstString(message.mimetype, image.mimetype, content.mimetype);
+  const isImage = /image/i.test(messageType) || mimetype.toLowerCase().startsWith("image/") || Object.keys(image).length > 0;
   return {
     text,
     chatJid,
     messageId: firstString(message.messageid, message.messageId, message.id, key.id, data.messageid, data.id, payload.id) || crypto.randomUUID(),
+    downloadId: firstString(message.id, message.messageid, message.messageId, key.id, data.id, data.messageid),
+    alternateDownloadId: firstString(message.messageid, message.messageId, message.id, key.id),
+    messageType,
+    mimetype,
+    isImage,
+    mediaUrl: firstString(message.fileURL, message.fileUrl, data.fileURL, data.fileUrl, content.fileURL, content.fileUrl, image.url),
+    thumbnail: isImage ? firstString(image.JPEGThumbnail, image.jpegThumbnail, content.JPEGThumbnail, content.jpegThumbnail) : "",
     fromMe: Boolean(message.fromMe ?? key.fromMe ?? data.fromMe),
     wasSentByApi: Boolean(message.wasSentByApi ?? data.wasSentByApi),
   };
+}
+
+async function downloadIncomingImage(
+  serverUrl: string,
+  token: string,
+  extracted: ReturnType<typeof extractMessage>,
+) {
+  if (!extracted.isImage) return null;
+  if (extracted.mediaUrl) return { file: extracted.mediaUrl, mimetype: extracted.mimetype || undefined, source: "webhook" };
+
+  const ids = [...new Set([extracted.downloadId, extracted.alternateDownloadId].filter(Boolean))];
+  for (const id of ids) {
+    try {
+      const response = await fetch(`${serverUrl}/message/download`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", token },
+        body: JSON.stringify({ id, return_link: true, return_base64: false }),
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (!response.ok) continue;
+      const result = await response.json() as { fileURL?: unknown; fileUrl?: unknown; mimetype?: unknown };
+      const file = firstString(result.fileURL, result.fileUrl);
+      if (file) return { file, mimetype: firstString(result.mimetype) || undefined, source: "download" };
+    } catch {
+      // Try the alternate provider id, then use the thumbnail fallback.
+    }
+  }
+  if (extracted.thumbnail.length > 100) {
+    return { file: extracted.thumbnail, mimetype: extracted.mimetype || "image/jpeg", source: "thumbnail" };
+  }
+  return null;
 }
 
 async function claimMessage(messageId: string, groupJid: string) {
@@ -91,7 +137,15 @@ export async function POST(request: Request) {
     stage: "webhook_received",
     message: `Evento ${event || "sem nome"} recebido da UAZAPI.`,
     groupJid: extracted.chatJid,
-    details: { event, messageId: extracted.messageId, hasText: Boolean(extracted.text), urlCount: extractUrls(extracted.text).length },
+    details: {
+      event,
+      messageId: extracted.messageId,
+      messageType: extracted.messageType,
+      hasText: Boolean(extracted.text),
+      hasImage: extracted.isImage,
+      hasMediaUrl: Boolean(extracted.mediaUrl),
+      urlCount: extractUrls(extracted.text).length,
+    },
   });
 
   if (event && event !== "messages") return NextResponse.json({ ok: true, ignored: "event" });
@@ -146,17 +200,38 @@ export async function POST(request: Request) {
     const token = runtime.UAZAPI_INSTANCE_TOKEN || "";
     if (!serverUrl || !token) throw new Error("Credenciais UAZAPI não configuradas no servidor.");
     const outgoingText = replaceConvertedLinks(extracted.text, products).slice(0, 4096);
-    const response = await fetch(`${serverUrl}/send/text`, {
+    const incomingImage = await downloadIncomingImage(serverUrl, token, extracted);
+    if (extracted.isImage && !incomingImage) {
+      await automationLog({
+        level: "warning",
+        stage: "media",
+        message: "A oferta tinha imagem, mas a UAZAPI não disponibilizou o arquivo; o texto será enviado normalmente.",
+        groupJid: extracted.chatJid,
+        details: { messageId: extracted.messageId, messageType: extracted.messageType },
+      });
+    }
+    const endpoint = incomingImage ? "/send/media" : "/send/text";
+    const body = incomingImage ? {
+      number: route.destinationJid,
+      type: "image",
+      file: incomingImage.file,
+      text: outgoingText,
+      mimetype: incomingImage.mimetype,
+      async: true,
+      track_source: "promozap",
+      track_id: extracted.messageId,
+    } : {
+      number: route.destinationJid,
+      text: outgoingText,
+      linkPreview: true,
+      async: true,
+      track_source: "promozap",
+      track_id: extracted.messageId,
+    };
+    const response = await fetch(`${serverUrl}${endpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", token },
-      body: JSON.stringify({
-        number: route.destinationJid,
-        text: outgoingText,
-        linkPreview: true,
-        async: true,
-        track_source: "promozap",
-        track_id: extracted.messageId,
-      }),
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(20_000),
     });
     const providerResponse = await response.text();
@@ -167,9 +242,16 @@ export async function POST(request: Request) {
     await automationLog({
       level: "success",
       stage: "sent",
-      message: `Oferta enviada ao grupo de destino (${converted.length} produto(s)).`,
+      message: `Oferta enviada ao grupo de destino (${converted.length} produto(s))${incomingImage ? " com a foto original" : ""}.`,
       groupJid: route.destinationJid,
-      details: { sourceGroup: extracted.chatJid, destinationGroup: route.destinationJid, providerStatus: response.status, messageId: extracted.messageId },
+      details: {
+        sourceGroup: extracted.chatJid,
+        destinationGroup: route.destinationJid,
+        providerStatus: response.status,
+        messageId: extracted.messageId,
+        imageForwarded: Boolean(incomingImage),
+        mediaSource: incomingImage?.source || null,
+      },
     });
     return NextResponse.json({ ok: true, converted: converted.length, sent: true });
   } catch (error) {

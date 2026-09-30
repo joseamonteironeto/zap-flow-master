@@ -66,13 +66,26 @@ function extractMeta(html: string) {
 }
 
 function mercadoLivreSocialProduct(html: string) {
-  const matched = html.match(/"shared_item"\s*:\s*\{[^}]{0,300}"id"\s*:\s*"(MLB\d{7,})"[^}]{0,300}"type"\s*:\s*"PRODUCT"/i);
-  if (!matched) return null;
-  const productCode = matched[1].toUpperCase();
+  const sharedItem = html.match(/"shared_item"\s*:\s*\{[^}]{0,500}"id"\s*:\s*"(MLB\d{7,})"[^}]{0,500}"type"\s*:\s*"PRODUCT"/i)
+    || html.match(/"shared_item"\s*:\s*\{[^}]{0,500}"type"\s*:\s*"PRODUCT"[^}]{0,500}"id"\s*:\s*"(MLB\d{7,})"/i);
+  if (sharedItem) {
+    const productCode = sharedItem[1].toUpperCase();
+    return {
+      store: "mercadolivre" as const,
+      productCode,
+      canonicalUrl: `https://www.mercadolivre.com.br/p/${productCode}`,
+    };
+  }
+
+  // Newer /social pages no longer expose shared_item. The first polycard is the
+  // shared offer itself; subsequent polycards are recommendations.
+  const polycard = html.match(/"polycards"\s*:\s*\[\s*\{[\s\S]{0,2500}?"metadata"\s*:\s*\{[^}]{0,800}"id"\s*:\s*"(MLB\d{7,})"/i);
+  if (!polycard) return null;
+  const productCode = polycard[1].toUpperCase();
   return {
     store: "mercadolivre" as const,
     productCode,
-    canonicalUrl: `https://www.mercadolivre.com.br/p/${productCode}`,
+    canonicalUrl: `https://produto.mercadolivre.com.br/MLB-${productCode.slice(3)}`,
   };
 }
 
