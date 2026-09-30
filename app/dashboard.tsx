@@ -551,7 +551,23 @@ export default function Dashboard() {
       });
       const result = await response.json() as { groups?: Group[]; error?: string };
       if (!response.ok) throw new Error(result.error || "A conexão foi recusada.");
-      setGroups(result.groups || []);
+      const nextGroups = result.groups || [];
+      setGroups(nextGroups);
+      setConfigs((current) => {
+        const next = { ...current };
+        for (const group of nextGroups) {
+          if (next[group.JID]) continue;
+          next[group.JID] = {
+            jid: group.JID,
+            name: group.Name || group.JID,
+            role: "ignored",
+            category: "geral",
+            destinationJid: "",
+            enabled: false,
+          };
+        }
+        return next;
+      });
       setWhatsappConnected(true);
       setDemo(false);
       setError("");
