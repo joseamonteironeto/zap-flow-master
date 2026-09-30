@@ -85,7 +85,7 @@ export async function POST(request: Request) {
   if (!env.DB) return NextResponse.json({ ok: false, message: "Banco indisponível." }, { status: 503 });
 
   const payload = await request.json().catch(() => ({})) as UnknownRecord;
-  const event = firstString(payload.event, new URL(request.url).searchParams.get("event"));
+  const event = firstString(payload.EventType, payload.event, new URL(request.url).searchParams.get("event"));
   const extracted = extractMessage(payload);
   await automationLog({
     stage: "webhook_received",

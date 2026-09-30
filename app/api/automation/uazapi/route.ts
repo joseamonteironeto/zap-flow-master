@@ -17,7 +17,10 @@ async function configure(baseUrl: string, token: string, webhookUrl: string) {
     url: webhookUrl,
     events: ["messages"],
     excludeMessages: ["wasSentByApi", "fromMeYes", "isGroupNo"],
-    addUrlEvents: true,
+    // UAZAPI appends the event name to the configured URL when this is true.
+    // Our signed endpoint uses a query-string key, so that suffix corrupts the
+    // key ("?key=.../messages") and the receiver correctly returns 401.
+    addUrlEvents: false,
     addUrlTypesMessages: false,
   });
   const options: RequestInit = {
