@@ -65,6 +65,17 @@ function extractMeta(html: string) {
   return { title: value("og:title") || (titleTag ? htmlDecode(titleTag).trim() : null), imageUrl: value("og:image") };
 }
 
+function mercadoLivreSocialProduct(html: string) {
+  const matched = html.match(/"shared_item"\s*:\s*\{[^}]{0,300}"id"\s*:\s*"(MLB\d{7,})"[^}]{0,300}"type"\s*:\s*"PRODUCT"/i);
+  if (!matched) return null;
+  const productCode = matched[1].toUpperCase();
+  return {
+    store: "mercadolivre" as const,
+    productCode,
+    canonicalUrl: `https://www.mercadolivre.com.br/p/${productCode}`,
+  };
+}
+
 function nestedDestination(url: URL) {
   for (const name of destinationParams) {
     const value = url.searchParams.get(name);
@@ -172,6 +183,21 @@ export async function resolveProductUrl(sourceUrl: string): Promise<ResolvedProd
       const meta = extractMeta(html);
       title ||= meta.title;
       imageUrl ||= meta.imageUrl;
+      if (mercadoLivreHosts.test(current.hostname) && current.pathname.startsWith("/social/")) {
+        const sharedProduct = mercadoLivreSocialProduct(html);
+        if (sharedProduct) {
+          return {
+            sourceUrl,
+            resolvedUrl: sharedProduct.canonicalUrl,
+            store: sharedProduct.store,
+            productCode: sharedProduct.productCode,
+            title,
+            imageUrl,
+            redirectCount,
+            errorMessage: null,
+          };
+        }
+      }
       const target = htmlRedirect(html, current.href);
       if (!target || visited.has(target.href)) break;
       current = target;
