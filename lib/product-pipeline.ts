@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { extractUrls, resolveProductUrl } from "@/lib/link-resolver";
 import { generateMercadoLivreLinks } from "@/lib/mercadolivre-affiliate";
+import { readIntegrationSecret } from "@/lib/integration-secret";
 
 export type ProductStatus = "found" | "converted" | "waiting_credentials" | "unsupported" | "error" | "sent";
 
@@ -103,7 +104,8 @@ export async function processProductInput(input: {
   if (!urls.length) return [];
   const settings = await getAffiliateSettings();
   const runtime = env as unknown as { MERCADOLIVRE_SESSION_COOKIES?: string };
-  const cookies = input.cookies?.trim() || runtime.MERCADOLIVRE_SESSION_COOKIES;
+  const storedCookies = input.cookies?.trim() ? null : await readIntegrationSecret("mercadolivre_session_cookies");
+  const cookies = input.cookies?.trim() || storedCookies || runtime.MERCADOLIVRE_SESSION_COOKIES;
   const saved: SavedProduct[] = [];
 
   for (const sourceUrl of urls) {
