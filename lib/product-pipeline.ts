@@ -97,6 +97,7 @@ export async function processProductInput(input: {
   sourceGroup?: string;
   destinationGroup?: string;
   cookies?: string;
+  originalImageUrl?: string;
 }) {
   if (!env.DB) throw new Error("Banco de dados indisponível.");
   const message = cleanText(input.message, 8_000);
@@ -137,11 +138,12 @@ export async function processProductInput(input: {
 
     const record = await saveProduct({
       ...resolved,
+      imageUrl: cleanText(input.originalImageUrl, 4_000) || resolved.imageUrl,
       affiliateUrl,
       status,
       sourceGroup: cleanText(input.sourceGroup, 160),
       destinationGroup: cleanText(input.destinationGroup, 160),
-      messageExcerpt: message.slice(0, 500),
+      messageExcerpt: message.slice(0, 4_000),
       errorMessage,
     });
     if (record) saved.push(record);

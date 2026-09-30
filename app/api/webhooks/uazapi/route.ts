@@ -188,7 +188,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, message: "Destino não configurado." }, { status: 422 });
     }
 
-    const products = await processProductInput({ message: extracted.text, sourceGroup: route.name || route.jid, destinationGroup: route.destinationJid });
+    const serverUrl = runtime.UAZAPI_SERVER_URL?.replace(/\/$/, "") || "";
+    const token = runtime.UAZAPI_INSTANCE_TOKEN || "";
+    if (!serverUrl || !token) throw new Error("Credenciais UAZAPI não configuradas no servidor.");
+    const incomingImage = await downloadIncomingImage(serverUrl, token, extracted);
+    const originalImageUrl = incomingImage?.file.startsWith("https://") ? incomingImage.file : undefined;
+    const products = await processProductInput({
+      message: extracted.text,
+      sourceGroup: route.name || route.jid,
+      destinationGroup: route.destinationJid,
+      originalImageUrl,
+    });
     const converted = products.filter((product) => product.status === "converted" && product.affiliateUrl);
     await automationLog({
       level: converted.length ? "success" : "warning",
@@ -202,11 +212,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, converted: 0, sent: false });
     }
 
-    const serverUrl = runtime.UAZAPI_SERVER_URL?.replace(/\/$/, "") || "";
-    const token = runtime.UAZAPI_INSTANCE_TOKEN || "";
-    if (!serverUrl || !token) throw new Error("Credenciais UAZAPI não configuradas no servidor.");
     const outgoingText = replaceConvertedLinks(extracted.text, products).slice(0, 4096);
-    const incomingImage = await downloadIncomingImage(serverUrl, token, extracted);
     if ((extracted.isImage || extracted.thumbnail.length > 100) && !incomingImage) {
       await automationLog({
         level: "warning",

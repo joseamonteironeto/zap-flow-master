@@ -103,6 +103,7 @@ type ProductRecord = {
   status: "found" | "converted" | "waiting_credentials" | "unsupported" | "error" | "sent";
   sourceGroup?: string | null;
   destinationGroup?: string | null;
+  messageExcerpt?: string | null;
   redirectCount: number;
   occurrences: number;
   errorMessage?: string | null;
@@ -184,6 +185,35 @@ function productStatusClass(status: ProductRecord["status"]) {
   if (status === "unsupported") return "border-[#4c5650] bg-[#202622] text-[#c0c9c3]";
   if (status === "error") return "border-[#764239] bg-[#2a1612] text-[#ff9b92]";
   return "border-[#365044] bg-[#17231c] text-[#b2c9ba]";
+}
+
+function renderWhatsAppLine(line: string, lineIndex: number) {
+  const pattern = /(https?:\/\/[^\s]+|\*[^*\n]+\*|_[^_\n]+_|~[^~\n]+~|`[^`\n]+`)/g;
+  const parts = line.split(pattern).filter((part) => part.length > 0);
+  return (
+    <span key={`line-${lineIndex}`}>
+      {parts.map((part, index) => {
+        const key = `${lineIndex}-${index}`;
+        if (/^https?:\/\//i.test(part)) return <a key={key} href={part} target="_blank" rel="noreferrer" className="break-all text-[#53bdeb] underline decoration-[#427d91] underline-offset-2">{part}</a>;
+        if (part.startsWith("*") && part.endsWith("*")) return <strong key={key} className="font-bold text-white">{part.slice(1, -1)}</strong>;
+        if (part.startsWith("_") && part.endsWith("_")) return <em key={key}>{part.slice(1, -1)}</em>;
+        if (part.startsWith("~") && part.endsWith("~")) return <s key={key} className="text-[#9caaa1]">{part.slice(1, -1)}</s>;
+        if (part.startsWith("`") && part.endsWith("`")) return <code key={key} className="rounded bg-black/30 px-1 py-0.5 text-[0.9em]">{part.slice(1, -1)}</code>;
+        return <span key={key}>{part}</span>;
+      })}
+    </span>
+  );
+}
+
+function WhatsAppMessage({ text }: { text: string }) {
+  const lines = text.split("\n");
+  return (
+    <div className="whitespace-pre-wrap break-words text-[15px] leading-6 text-[#eef5f0]">
+      {lines.map((line, index) => (
+        <span key={index}>{renderWhatsAppLine(line, index)}{index < lines.length - 1 && <br />}</span>
+      ))}
+    </div>
+  );
 }
 
 export default function Dashboard() {
@@ -788,24 +818,63 @@ export default function Dashboard() {
                   ) : products.map((product) => (
                     <Card key={product.id} className="overflow-hidden border-[#27322b] bg-[#0b100d] shadow-none">
                       <CardContent className="p-0">
-                        <div className="grid gap-4 p-4 sm:grid-cols-[56px_minmax(0,1fr)_auto] sm:p-5">
-                          <div className={`grid size-14 place-items-center rounded-xl font-extrabold ${product.store === "amazon" ? "bg-[#ff9900] text-[#231500]" : product.store === "mercadolivre" ? "bg-[#ffe600] text-[#231f00]" : "bg-[#252d28] text-[#aeb9b1]"}`}>
-                            {product.store === "amazon" ? "a" : product.store === "mercadolivre" ? "ML" : <ShoppingBag className="size-5" />}
-                          </div>
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <p className="min-w-0 truncate font-bold">{product.title || product.productCode || "Produto não reconhecido"}</p>
-                              <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${productStatusClass(product.status)}`}>{productStatusLabel(product.status)}</span>
+                        <div className={`flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 ${product.status === "sent" ? "border-[#245c34] bg-[#102619]" : product.status === "converted" ? "border-[#285d39] bg-[#12251a]" : product.status === "waiting_credentials" ? "border-[#65582d] bg-[#29230f]" : product.status === "error" ? "border-[#74443c] bg-[#2a1512]" : "border-[#343f38] bg-[#151b17]"}`}>
+                          <div className="flex min-w-0 items-center gap-3">
+                            <span className={`size-2.5 shrink-0 rounded-full ${product.status === "sent" ? "bg-[#62ef8b]" : product.status === "converted" ? "bg-[#39d66d]" : product.status === "waiting_credentials" ? "bg-[#f2c94c]" : product.status === "error" ? "bg-[#ff756b]" : "bg-[#8c9a91]"}`} />
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#91a298]">Situação da oferta</p>
+                              <p className="mt-0.5 truncate font-bold text-white">{productStatusLabel(product.status)}</p>
                             </div>
-                            <p className="mt-1 text-xs text-[#94a69b]">{product.store === "amazon" ? "Amazon" : product.store === "mercadolivre" ? "Mercado Livre" : "Outra loja"}{product.productCode ? ` · ${product.productCode}` : ""} · {product.redirectCount} redirecionamento(s)</p>
-                            <p className="mt-3 truncate text-sm text-[#a7b3ab]" title={product.sourceUrl}>{product.sourceUrl}</p>
-                            {product.affiliateUrl && <a href={product.affiliateUrl} target="_blank" rel="noreferrer" className="mt-2 block truncate text-sm font-semibold text-[#62ef8b] underline decoration-[#3e714c] underline-offset-4">{product.affiliateUrl}</a>}
-                            {product.errorMessage && <p className="mt-2 text-sm leading-6 text-[#d9ad75]">{product.errorMessage}</p>}
-                            <p className="mt-3 text-xs text-[#738078]">Encontrado {new Date(product.lastSeenAt).toLocaleString("pt-BR")} · {product.occurrences} ocorrência(s)</p>
                           </div>
-                          <div className="flex gap-2 sm:flex-col">
-                            {(product.affiliateUrl || product.resolvedUrl) && <Button variant="outline" size="sm" onClick={() => { void navigator.clipboard.writeText(product.affiliateUrl || product.resolvedUrl || product.sourceUrl); toast.success("Link copiado."); }} className="rounded-lg border-[#34423a] bg-[#111813] text-white hover:bg-[#19231c]"><Copy /> Copiar</Button>}
-                            {product.status === "converted" && <Button size="sm" onClick={() => void markProductSent(product.id)} className="rounded-lg bg-[#00c853] text-[#04140a] hover:bg-[#16dc61]"><Send /> Marcar enviado</Button>}
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#a8b5ad]">
+                            <span>{new Date(product.lastSeenAt).toLocaleString("pt-BR")}</span>
+                            <span>{product.occurrences} ocorrência(s)</span>
+                            {product.sentAt && <span className="font-semibold text-[#75e895]">Enviada {new Date(product.sentAt).toLocaleString("pt-BR")}</span>}
+                          </div>
+                        </div>
+
+                        <div className="grid gap-5 p-4 lg:grid-cols-[minmax(0,1fr)_280px] lg:p-5">
+                          <div className="min-w-0 rounded-2xl border border-[#26352c] bg-[#07110b] p-3 sm:p-4">
+                            <div className="mb-3 flex items-center justify-between gap-3 px-1">
+                              <div className="min-w-0">
+                                <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#62ef8b]">Mensagem original</p>
+                                <p className="mt-1 truncate text-xs text-[#87978d]">{product.sourceGroup || "Grupo de origem não identificado"}</p>
+                              </div>
+                              <MessageCircleMore className="size-5 shrink-0 text-[#62ef8b]" />
+                            </div>
+                            <div className="ml-auto max-w-[96%] overflow-hidden rounded-2xl rounded-tr-md bg-[#183d2a] shadow-[0_8px_28px_rgba(0,0,0,.22)] sm:max-w-[90%]">
+                              {product.imageUrl && (
+                                <div className="aspect-[16/10] overflow-hidden bg-[#101713]">
+                                  <img src={product.imageUrl} alt={product.title || "Foto da oferta"} loading="lazy" className="h-full w-full object-cover" />
+                                </div>
+                              )}
+                              <div className="p-3.5 sm:p-4">
+                                <WhatsAppMessage text={product.messageExcerpt || `${product.title || "Oferta encontrada"}\n\n${product.sourceUrl}`} />
+                                <div className="mt-2 flex justify-end text-[11px] text-[#a9c7b5]">{new Date(product.lastSeenAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })} <span className="ml-1 text-[#53bdeb]">✓✓</span></div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="min-w-0 space-y-4">
+                            <div className="flex items-center gap-3">
+                              <div className={`grid size-12 shrink-0 place-items-center rounded-xl font-extrabold ${product.store === "amazon" ? "bg-[#ff9900] text-[#231500]" : product.store === "mercadolivre" ? "bg-[#ffe600] text-[#231f00]" : "bg-[#252d28] text-[#aeb9b1]"}`}>
+                                {product.store === "amazon" ? "a" : product.store === "mercadolivre" ? "ML" : <ShoppingBag className="size-5" />}
+                              </div>
+                              <div className="min-w-0"><p className="line-clamp-2 font-bold leading-5">{product.title || product.productCode || "Produto não reconhecido"}</p><p className="mt-1 text-xs text-[#94a69b]">{product.store === "amazon" ? "Amazon" : product.store === "mercadolivre" ? "Mercado Livre" : "Outra loja"}{product.productCode ? ` · ${product.productCode}` : ""}</p></div>
+                            </div>
+
+                            <div className="space-y-2 rounded-xl border border-[#27322b] bg-[#080c09] p-3 text-xs leading-5 text-[#95a39a]">
+                              <div className="flex justify-between gap-3"><span>Redirecionamentos</span><strong className="text-white">{product.redirectCount}</strong></div>
+                              <div className="flex justify-between gap-3"><span>Destino</span><strong className="max-w-36 truncate text-right text-white">{product.destinationGroup || "—"}</strong></div>
+                            </div>
+
+                            {product.errorMessage && <div className="rounded-xl border border-[#66532e] bg-[#241d0c] p-3 text-sm leading-6 text-[#e6c47d]"><p className="font-semibold text-[#f0cf88]">Atenção</p><p className="mt-1">{product.errorMessage}</p></div>}
+
+                            <div className="grid gap-2">
+                              {(product.affiliateUrl || product.resolvedUrl) && <Button variant="outline" size="sm" onClick={() => { void navigator.clipboard.writeText(product.affiliateUrl || product.resolvedUrl || product.sourceUrl); toast.success("Link copiado."); }} className="h-10 justify-start rounded-lg border-[#34423a] bg-[#111813] text-white hover:bg-[#19231c]"><Copy /> Copiar link {product.affiliateUrl ? "convertido" : "resolvido"}</Button>}
+                              <Button asChild variant="outline" size="sm" className="h-10 justify-start rounded-lg border-[#34423a] bg-[#111813] text-white hover:bg-[#19231c]"><a href={product.sourceUrl} target="_blank" rel="noreferrer"><ExternalLink /> Abrir link original</a></Button>
+                              {product.status === "converted" && <Button size="sm" onClick={() => void markProductSent(product.id)} className="h-10 justify-start rounded-lg bg-[#00c853] text-[#04140a] hover:bg-[#16dc61]"><Send /> Marcar como enviado</Button>}
+                            </div>
                           </div>
                         </div>
                       </CardContent>
