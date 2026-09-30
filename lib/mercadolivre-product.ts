@@ -1,10 +1,79 @@
+import { env } from "cloudflare:workers";
 import { parseMercadoLivreCookies } from "@/lib/mercadolivre-affiliate";
 
 type MercadoLivreProductVisual = {
   title: string | null;
   imageUrl: string | null;
-  source: "product_page" | null;
+  source: "mercadolivre_items_api" | "mercadolivre_catalog_api" | "product_page" | null;
+  details: Record<string, unknown> | null;
 };
+
+function compactApiData(value: Record<string, unknown>) {
+  const pictures = Array.isArray(value.pictures) ? value.pictures.slice(0, 12) : [];
+  const attributes = Array.isArray(value.attributes) ? value.attributes.slice(0, 60) : [];
+  const saleTerms = Array.isArray(value.sale_terms) ? value.sale_terms.slice(0, 30) : [];
+  return {
+    id: value.id,
+    siteId: value.site_id,
+    title: value.title || value.name,
+    familyName: value.family_name,
+    status: value.status,
+    domainId: value.domain_id,
+    categoryId: value.category_id,
+    sellerId: value.seller_id,
+    officialStoreId: value.official_store_id,
+    price: value.price,
+    basePrice: value.base_price,
+    originalPrice: value.original_price,
+    currencyId: value.currency_id,
+    availableQuantity: value.available_quantity,
+    soldQuantity: value.sold_quantity,
+    condition: value.condition,
+    catalogProductId: value.catalog_product_id,
+    parentId: value.parent_id,
+    permalink: value.permalink,
+    buyingMode: value.buying_mode,
+    listingTypeId: value.listing_type_id,
+    warranty: value.warranty,
+    health: value.health,
+    shipping: value.shipping,
+    settings: value.settings,
+    tags: value.tags,
+    pictures,
+    attributes,
+    saleTerms,
+  };
+}
+
+async function getOfficialApiProduct(productCode: string, resolvedUrl: string) {
+  const token = (env as unknown as { MERCADOLIVRE_ACCESS_TOKEN?: string }).MERCADOLIVRE_ACCESS_TOKEN;
+  const likelyCatalog = /\/p\/MLB\d+/i.test(resolvedUrl);
+  const endpoints = likelyCatalog
+    ? [["mercadolivre_catalog_api", `https://api.mercadolibre.com/products/${productCode}`], ["mercadolivre_items_api", `https://api.mercadolibre.com/items/${productCode}`]]
+    : [["mercadolivre_items_api", `https://api.mercadolibre.com/items/${productCode}`], ["mercadolivre_catalog_api", `https://api.mercadolibre.com/products/${productCode}`]];
+  for (const [source, endpoint] of endpoints) {
+    try {
+      const response = await fetch(endpoint, {
+        headers: { Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        cache: "no-store",
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (!response.ok) continue;
+      const data = await response.json() as Record<string, unknown>;
+      const picture = Array.isArray(data.pictures) ? data.pictures[0] as Record<string, unknown> | undefined : undefined;
+      const imageUrl = safeOfficialImage(typeof picture?.secure_url === "string" ? picture.secure_url : typeof picture?.url === "string" ? picture.url : null);
+      return {
+        title: typeof data.title === "string" ? data.title : typeof data.name === "string" ? data.name : null,
+        imageUrl,
+        source: source as "mercadolivre_items_api" | "mercadolivre_catalog_api",
+        details: compactApiData(data),
+      };
+    } catch {
+      // Tenta o outro recurso oficial e, depois, a página pública.
+    }
+  }
+  return null;
+}
 
 function decodeHtml(value: string) {
   return value
@@ -43,6 +112,7 @@ function extractVisual(html: string): MercadoLivreProductVisual {
     title: metaContent(html, "og:title") || (titleTag ? decodeHtml(titleTag) : null),
     imageUrl: ogImage || safeOfficialImage(jsonImage),
     source: ogImage || safeOfficialImage(jsonImage) ? "product_page" : null,
+    details: null,
   };
 }
 
@@ -70,7 +140,9 @@ export async function getMercadoLivreProductVisual(
   resolvedUrl: string,
   cookies?: string,
 ): Promise<MercadoLivreProductVisual> {
-  if (!/^MLB\d{7,}$/i.test(productCode)) return { title: null, imageUrl: null, source: null };
+  if (!/^MLB\d{7,}$/i.test(productCode)) return { title: null, imageUrl: null, source: null, details: null };
+  const official = await getOfficialApiProduct(productCode.toUpperCase(), resolvedUrl);
+  if (official) return official;
   const numericId = productCode.slice(3);
   const session = cookies ? parseMercadoLivreCookies(cookies) : null;
   const urls = [...new Set([
@@ -97,5 +169,5 @@ export async function getMercadoLivreProductVisual(
       // Try the other official URL format before falling back to the received image.
     }
   }
-  return { title: null, imageUrl: null, source: null };
+  return { title: null, imageUrl: null, source: null, details: null };
 }

@@ -105,6 +105,8 @@ type ProductRecord = {
   productCode?: string | null;
   title?: string | null;
   imageUrl?: string | null;
+  productDataJson?: string | null;
+  dataSource?: string | null;
   sourceUrl: string;
   resolvedUrl?: string | null;
   affiliateUrl?: string | null;
@@ -230,6 +232,28 @@ function WhatsAppMessage({ text }: { text: string }) {
   );
 }
 
+function parseProductData(value?: string | null) {
+  if (!value) return null;
+  try { return JSON.parse(value) as Record<string, unknown>; } catch { return null; }
+}
+
+const productDataLabels: Record<string, string> = {
+  id: "ID retornado", asin: "ASIN", siteId: "Site", title: "Título da API", name: "Nome", familyName: "Família",
+  status: "Status", domainId: "Domínio", categoryId: "Categoria", sellerId: "Vendedor", officialStoreId: "Loja oficial",
+  price: "Preço", basePrice: "Preço-base", originalPrice: "Preço original", currencyId: "Moeda", availableQuantity: "Quantidade disponível",
+  soldQuantity: "Quantidade vendida", condition: "Condição", catalogProductId: "Produto de catálogo", parentId: "Produto-pai",
+  permalink: "Página oficial", buyingMode: "Modo de compra", listingTypeId: "Tipo de anúncio", warranty: "Garantia", health: "Qualidade do anúncio",
+  brand: "Marca", description: "Descrição", sku: "SKU", mpn: "MPN", gtin: "GTIN/EAN", category: "Categoria", color: "Cor",
+  size: "Tamanho", material: "Material", model: "Modelo", apiStatus: "Situação da API", apiNote: "Observação da API",
+};
+
+function productDataValue(value: unknown) {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "boolean") return value ? "Sim" : "Não";
+  if (typeof value === "string" || typeof value === "number") return String(value);
+  return JSON.stringify(value);
+}
+
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("groups");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -260,6 +284,7 @@ export default function Dashboard() {
   const [productStatus, setProductStatus] = useState("all");
   const [catalogStore, setCatalogStore] = useState("all");
   const [productsLoading, setProductsLoading] = useState(false);
+  const [enrichingProductId, setEnrichingProductId] = useState("");
   const [productResolving, setProductResolving] = useState(false);
   const [productsError, setProductsError] = useState("");
   const [automationLogs, setAutomationLogs] = useState<AutomationLog[]>([]);
@@ -636,6 +661,26 @@ export default function Dashboard() {
     }
   }
 
+  async function refreshProductData(id: string) {
+    if (!whatsapp.instanceToken.trim()) return toast.error("Informe o token da UAZAPI na configuração para autorizar a atualização.");
+    setEnrichingProductId(id);
+    try {
+      const response = await fetch("/api/products/enrich", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Promozap-Admin-Token": whatsapp.instanceToken.trim() },
+        body: JSON.stringify({ id }),
+      });
+      const result = await response.json() as { error?: string; source?: string };
+      if (!response.ok) throw new Error(result.error || "A loja não retornou os dados.");
+      toast.success(`Dados atualizados${result.source ? ` via ${result.source}` : ""}.`);
+      await loadProducts();
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "Não foi possível atualizar os dados.");
+    } finally {
+      setEnrichingProductId("");
+    }
+  }
+
   useEffect(() => {
     if (activeTab === "products" || activeTab === "catalog") void loadProducts();
   }, [activeTab, productStatus]);
@@ -980,9 +1025,15 @@ export default function Dashboard() {
                 ) : (
                   <div className="grid gap-4 2xl:grid-cols-2">
                     {catalogProducts.map((product) => {
+                      const enrichedData = parseProductData(product.productDataJson);
+                      const enrichedFields = enrichedData ? Object.entries(enrichedData).filter(([key, value]) =>
+                        value !== null && value !== undefined && value !== "" && !["pictures", "images", "attributes", "saleTerms", "shipping", "settings", "offers", "aggregateRating", "tags"].includes(key)
+                      ) : [];
+                      const attributes = enrichedData && Array.isArray(enrichedData.attributes) ? enrichedData.attributes as Array<Record<string, unknown>> : [];
                       const fields = [
                         ["Loja", product.store === "amazon" ? "Amazon" : "Mercado Livre"],
                         ["ID do produto", product.productCode || "Não identificado"],
+                        ["Fonte dos dados", product.dataSource || "Página pública"],
                         ["Situação", productStatusLabel(product.status)],
                         ["Grupo de origem", product.sourceGroup || "Não informado"],
                         ["Grupo de destino", product.destinationGroup || "Não informado"],
@@ -1006,7 +1057,7 @@ export default function Dashboard() {
                               <div className="size-20 shrink-0 overflow-hidden rounded-xl border border-[#2f3d34] bg-[#080c09]">
                                 {product.imageUrl ? <img src={product.imageUrl} alt={product.title || "Produto"} loading="lazy" className="h-full w-full object-contain" /> : <div className="grid h-full place-items-center"><ShoppingBag className="size-6 text-[#607267]" /></div>}
                               </div>
-                              <div className="min-w-0 flex-1"><div className="flex flex-wrap gap-2"><Badge className={product.store === "amazon" ? "bg-[#ff9900] text-[#231500]" : "bg-[#ffe600] text-[#231f00]"}>{product.store === "amazon" ? "Amazon" : "Mercado Livre"}</Badge><Badge className="border border-[#2d8a4b] bg-[#153520] text-[#8af3a5]">Enviado</Badge></div><CardTitle className="mt-3 line-clamp-2 text-lg leading-6">{product.title || product.productCode || "Produto sem título"}</CardTitle><CardDescription className="mt-1 break-all">Registro {product.id}</CardDescription></div>
+                              <div className="min-w-0 flex-1"><div className="flex flex-wrap gap-2"><Badge className={product.store === "amazon" ? "bg-[#ff9900] text-[#231500]" : "bg-[#ffe600] text-[#231f00]"}>{product.store === "amazon" ? "Amazon" : "Mercado Livre"}</Badge><Badge className="border border-[#2d8a4b] bg-[#153520] text-[#8af3a5]">Enviado</Badge></div><CardTitle className="mt-3 line-clamp-2 text-lg leading-6">{product.title || product.productCode || "Produto sem título"}</CardTitle><CardDescription className="mt-1 break-all">Registro {product.id}</CardDescription><Button onClick={() => void refreshProductData(product.id)} disabled={enrichingProductId === product.id} variant="outline" size="sm" className="mt-3 border-[#34423a] bg-[#111813] text-white hover:bg-[#19231c]">{enrichingProductId === product.id ? <LoaderCircle className="animate-spin" /> : <RefreshCw />} Buscar dados da loja</Button></div>
                             </div>
                           </CardHeader>
                           <CardContent className="space-y-5 p-4 sm:p-5">
@@ -1016,9 +1067,14 @@ export default function Dashboard() {
                             <div className="space-y-3">
                               {links.map(([label, value]) => <div key={label} className="rounded-xl border border-[#27322b] bg-[#080c09] p-3"><div className="flex items-center justify-between gap-3"><p className="text-xs font-bold text-[#94a69b]">{label}</p><Button variant="ghost" size="sm" onClick={() => { void navigator.clipboard.writeText(value); toast.success(`${label} copiado.`); }} className="h-7 px-2 text-[#62ef8b] hover:bg-[#142019]"><Copy className="size-3.5" /> Copiar</Button></div><a href={value} target="_blank" rel="noreferrer" className="mt-2 block break-all text-xs leading-5 text-[#53bdeb] underline underline-offset-2">{value}</a></div>)}
                             </div>
+                            <div className="rounded-xl border border-[#2a4834] bg-[#09140d] p-4">
+                              <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-bold uppercase tracking-[0.1em] text-[#62ef8b]">Dados extraídos do produto</p><Badge className="border border-[#2a5f39] bg-[#102619] text-[#8af3a5]">{product.dataSource || "dados públicos"}</Badge></div>
+                              {enrichedFields.length ? <div className="mt-4 grid gap-x-5 gap-y-3 sm:grid-cols-2">{enrichedFields.map(([key, value]) => <div key={key} className="min-w-0"><p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#718079]">{productDataLabels[key] || key}</p><p className="mt-1 break-words text-sm leading-5 text-[#dce9df]">{productDataValue(value)}</p></div>)}</div> : <p className="mt-3 text-sm leading-6 text-[#94a69b]">Ainda não foi possível obter campos adicionais para este produto. Um novo envio tentará atualizar o registro.</p>}
+                              {attributes.length > 0 && <div className="mt-4 border-t border-[#25362b] pt-4"><p className="mb-3 text-xs font-bold text-[#94a69b]">FICHA TÉCNICA ({attributes.length})</p><div className="grid gap-2 sm:grid-cols-2">{attributes.map((attribute, index) => <div key={`${String(attribute.id || attribute.name)}-${index}`} className="rounded-lg bg-[#111b14] px-3 py-2"><p className="text-xs text-[#718079]">{String(attribute.name || attribute.id || "Atributo")}</p><p className="mt-1 text-sm text-[#e4eee7]">{String(attribute.value_name || attribute.valueName || attribute.value_id || "—")}</p></div>)}</div></div>}
+                            </div>
                             <div><p className="mb-2 text-xs font-bold uppercase tracking-[0.1em] text-[#718079]">Mensagem capturada</p><div className="max-h-56 overflow-auto rounded-xl border border-[#27322b] bg-[#080c09] p-3"><WhatsAppMessage text={product.messageExcerpt || "Mensagem não armazenada."} /></div></div>
                             {product.errorMessage && <div className="rounded-xl border border-[#66532e] bg-[#241d0c] p-3 text-sm text-[#e6c47d]">{product.errorMessage}</div>}
-                            <details className="rounded-xl border border-[#27322b] bg-[#080c09] open:bg-[#060906]"><summary className="cursor-pointer px-3 py-3 text-sm font-semibold text-[#b7c4bc]">Ver registro bruto (JSON)</summary><div className="border-t border-[#27322b] p-3"><Button variant="outline" size="sm" onClick={() => { void navigator.clipboard.writeText(JSON.stringify(product, null, 2)); toast.success("JSON copiado."); }} className="mb-3 border-[#34423a] bg-[#111813] text-white"><Copy /> Copiar JSON</Button><pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all text-xs leading-5 text-[#8fd9a4]">{JSON.stringify(product, null, 2)}</pre></div></details>
+                            <details className="rounded-xl border border-[#27322b] bg-[#080c09] open:bg-[#060906]"><summary className="cursor-pointer px-3 py-3 text-sm font-semibold text-[#b7c4bc]">Ver registro bruto (JSON)</summary><div className="border-t border-[#27322b] p-3"><Button variant="outline" size="sm" onClick={() => { void navigator.clipboard.writeText(JSON.stringify({ ...product, productData: enrichedData }, null, 2)); toast.success("JSON copiado."); }} className="mb-3 border-[#34423a] bg-[#111813] text-white"><Copy /> Copiar JSON</Button><pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all text-xs leading-5 text-[#8fd9a4]">{JSON.stringify({ ...product, productData: enrichedData }, null, 2)}</pre></div></details>
                           </CardContent>
                         </Card>
                       );

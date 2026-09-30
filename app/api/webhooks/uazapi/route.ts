@@ -133,6 +133,9 @@ function trustedCatalogImage(store: string | undefined, imageUrl: string | null 
         ? hostname === "media-amazon.com" || hostname.endsWith(".media-amazon.com") || hostname === "ssl-images-amazon.com" || hostname.endsWith(".ssl-images-amazon.com")
         : false;
     if (!trusted) return null;
+    if (store === "mercadolivre" && url.pathname.toLowerCase().endsWith(".webp")) {
+      url.pathname = url.pathname.replace(/\.webp$/i, ".jpg");
+    }
     const extension = url.pathname.toLowerCase();
     return {
       file: url.toString(),
@@ -282,53 +285,46 @@ export async function POST(request: Request) {
       : "";
     const buttonUrl = primaryProduct?.affiliateUrl || "";
     let buttonSent = false;
-    let usedFallback = false;
-    let response: Response;
+    let buttonProviderStatus: number | null = null;
+    const response = await fetch(`${serverUrl}${fallbackEndpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", token },
+      body: JSON.stringify(fallbackBody),
+      signal: AbortSignal.timeout(20_000),
+    });
+    const providerResponse = await response.text();
+    if (!response.ok) throw new Error(`UAZAPI respondeu HTTP ${response.status}: ${providerResponse.slice(0, 300)}`);
 
     if (buttonLabel && buttonUrl) {
-      response = await fetch(`${serverUrl}/send/menu`, {
+      const buttonResponse = await fetch(`${serverUrl}/send/menu`, {
         method: "POST",
         headers: { "Content-Type": "application/json", token },
         body: JSON.stringify({
           number: route.destinationJid,
           type: "button",
-          text: outgoingText,
+          text: "Toque no botão abaixo para abrir a oferta:",
           choices: [`${buttonLabel}|${buttonUrl}`],
-          ...(outgoingImage ? { imageButton: outgoingImage.file } : {}),
+          footerText: "\u200B",
+          delay: 1200,
           async: true,
           track_source: "promozap",
-          track_id: extracted.messageId,
+          track_id: `${extracted.messageId}:button`,
         }),
         signal: AbortSignal.timeout(20_000),
       });
-      buttonSent = response.ok;
-      if (!response.ok) {
-        const menuError = await response.text();
-        usedFallback = true;
+      buttonProviderStatus = buttonResponse.status;
+      buttonSent = buttonResponse.ok;
+      if (!buttonResponse.ok) {
+        const menuError = await buttonResponse.text();
         await automationLog({
           level: "warning",
-          stage: "button_fallback",
-          message: `A UAZAPI recusou o botão “${buttonLabel}”; a oferta será enviada no formato normal.`,
+          stage: "button",
+          message: `A oferta normal foi enviada, mas a UAZAPI recusou o botão “${buttonLabel}”.`,
           groupJid: route.destinationJid,
-          details: { providerStatus: response.status, providerResponse: menuError.slice(0, 300) },
-        });
-        response = await fetch(`${serverUrl}${fallbackEndpoint}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", token },
-          body: JSON.stringify(fallbackBody),
-          signal: AbortSignal.timeout(20_000),
+          details: { providerStatus: buttonResponse.status, providerResponse: menuError.slice(0, 300) },
         });
       }
-    } else {
-      response = await fetch(`${serverUrl}${fallbackEndpoint}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", token },
-        body: JSON.stringify(fallbackBody),
-        signal: AbortSignal.timeout(20_000),
-      });
     }
-    const providerResponse = await response.text();
-    if (!response.ok) throw new Error(`UAZAPI respondeu HTTP ${response.status}: ${providerResponse.slice(0, 300)}`);
 
     await markProductsSent(converted.map((product) => product.id), route.destinationJid);
     await finishMessage(extracted.messageId, "sent");
@@ -348,7 +344,8 @@ export async function POST(request: Request) {
         buttonSent,
         buttonLabel: buttonLabel || null,
         buttonUrl: buttonSent ? buttonUrl : null,
-        usedFallback,
+        buttonProviderStatus,
+        messageFormat: outgoingImage ? "normal_image_with_caption" : "normal_text",
       },
     });
     return NextResponse.json({ ok: true, converted: converted.length, sent: true });

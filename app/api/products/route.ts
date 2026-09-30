@@ -17,7 +17,8 @@ export async function GET(request: Request) {
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     const [products, totals] = await Promise.all([
       env.DB.prepare(`
-        SELECT id, store, product_code AS productCode, title, image_url AS imageUrl, source_url AS sourceUrl,
+        SELECT id, store, product_code AS productCode, title, image_url AS imageUrl,
+          product_data_json AS productDataJson, data_source AS dataSource, source_url AS sourceUrl,
           resolved_url AS resolvedUrl, affiliate_url AS affiliateUrl, status, source_group AS sourceGroup,
           destination_group AS destinationGroup, message_excerpt AS messageExcerpt, redirect_count AS redirectCount,
           occurrences, error_message AS errorMessage, found_at AS foundAt, last_seen_at AS lastSeenAt,

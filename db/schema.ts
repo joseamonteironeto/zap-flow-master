@@ -27,6 +27,8 @@ export const productEvents = sqliteTable("product_events", {
   productCode: text("product_code"),
   title: text("title"),
   imageUrl: text("image_url"),
+  productDataJson: text("product_data_json"),
+  dataSource: text("data_source"),
   sourceUrl: text("source_url").notNull(),
   resolvedUrl: text("resolved_url"),
   affiliateUrl: text("affiliate_url"),

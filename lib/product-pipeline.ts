@@ -13,6 +13,8 @@ export type SavedProduct = {
   productCode: string | null;
   title: string | null;
   imageUrl: string | null;
+  productDataJson: string | null;
+  dataSource: string | null;
   sourceUrl: string;
   resolvedUrl: string | null;
   affiliateUrl: string | null;
@@ -54,7 +56,7 @@ async function getAffiliateSettings() {
 async function saveProduct(product: {
   sourceUrl: string; resolvedUrl: string; affiliateUrl: string | null; store: string; productCode: string | null;
   title: string | null; imageUrl: string | null; status: ProductStatus; sourceGroup: string; destinationGroup: string;
-  messageExcerpt: string; redirectCount: number; errorMessage: string | null;
+  productDataJson: string | null; dataSource: string | null; messageExcerpt: string; redirectCount: number; errorMessage: string | null;
 }) {
   if (!env.DB) throw new Error("Banco de dados indisponível.");
   const now = new Date().toISOString();
@@ -62,12 +64,14 @@ async function saveProduct(product: {
   const id = crypto.randomUUID();
   await env.DB.prepare(`
     INSERT INTO product_events
-      (id, fingerprint, store, product_code, title, image_url, source_url, resolved_url, affiliate_url, status,
+      (id, fingerprint, store, product_code, title, image_url, product_data_json, data_source, source_url, resolved_url, affiliate_url, status,
        source_group, destination_group, message_excerpt, redirect_count, occurrences, error_message, found_at, last_seen_at, sent_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, NULL, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, NULL, ?)
     ON CONFLICT(fingerprint) DO UPDATE SET
       title = COALESCE(excluded.title, product_events.title),
       image_url = COALESCE(excluded.image_url, product_events.image_url),
+      product_data_json = COALESCE(excluded.product_data_json, product_events.product_data_json),
+      data_source = COALESCE(excluded.data_source, product_events.data_source),
       source_url = excluded.source_url,
       resolved_url = excluded.resolved_url,
       affiliate_url = COALESCE(excluded.affiliate_url, product_events.affiliate_url),
@@ -81,12 +85,13 @@ async function saveProduct(product: {
       last_seen_at = excluded.last_seen_at,
       updated_at = excluded.updated_at
   `).bind(
-    id, key, product.store, product.productCode, product.title, product.imageUrl, product.sourceUrl, product.resolvedUrl,
+    id, key, product.store, product.productCode, product.title, product.imageUrl, product.productDataJson, product.dataSource, product.sourceUrl, product.resolvedUrl,
     product.affiliateUrl, product.status, product.sourceGroup || null, product.destinationGroup || null,
     product.messageExcerpt || null, product.redirectCount, product.errorMessage, now, now, now,
   ).run();
   return env.DB.prepare(`
-    SELECT id, store, product_code AS productCode, title, image_url AS imageUrl, source_url AS sourceUrl,
+    SELECT id, store, product_code AS productCode, title, image_url AS imageUrl,
+      product_data_json AS productDataJson, data_source AS dataSource, source_url AS sourceUrl,
       resolved_url AS resolvedUrl, affiliate_url AS affiliateUrl, status, source_group AS sourceGroup,
       destination_group AS destinationGroup, message_excerpt AS messageExcerpt, redirect_count AS redirectCount,
       occurrences, error_message AS errorMessage, found_at AS foundAt, last_seen_at AS lastSeenAt,
@@ -150,6 +155,8 @@ export async function processProductInput(input: {
       ...resolved,
       title: productVisual?.title || resolved.title,
       imageUrl: productVisual?.imageUrl || cleanText(input.originalImageUrl, 4_000) || resolved.imageUrl,
+      productDataJson: productVisual?.details ? JSON.stringify(productVisual.details).slice(0, 60_000) : null,
+      dataSource: productVisual?.source || null,
       affiliateUrl,
       status,
       sourceGroup: cleanText(input.sourceGroup, 160),
