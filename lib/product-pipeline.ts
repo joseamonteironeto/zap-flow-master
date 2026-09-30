@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { getAmazonProductVisual } from "@/lib/amazon-product";
 import { extractUrls, resolveProductUrl } from "@/lib/link-resolver";
 import { generateMercadoLivreLinks } from "@/lib/mercadolivre-affiliate";
 import { getMercadoLivreProductVisual } from "@/lib/mercadolivre-product";
@@ -26,6 +27,7 @@ export type SavedProduct = {
   lastSeenAt: string;
   sentAt: string | null;
   updatedAt: string;
+  imageSource?: "amazon_catalog" | "mercadolivre_catalog" | "original" | "resolved" | null;
 };
 
 export function cleanText(value: unknown, max = 300) {
@@ -115,6 +117,10 @@ export async function processProductInput(input: {
     const mercadoLivreVisual = resolved.store === "mercadolivre" && resolved.productCode
       ? await getMercadoLivreProductVisual(resolved.productCode, resolved.resolvedUrl, cookies)
       : null;
+    const amazonVisual = resolved.store === "amazon" && resolved.productCode
+      ? await getAmazonProductVisual(resolved.productCode, resolved.resolvedUrl)
+      : null;
+    const productVisual = mercadoLivreVisual || amazonVisual;
     let affiliateUrl: string | null = null;
     let status: ProductStatus = resolved.store === "unknown" ? "unsupported" : "found";
     let errorMessage = resolved.errorMessage;
@@ -142,8 +148,8 @@ export async function processProductInput(input: {
 
     const record = await saveProduct({
       ...resolved,
-      title: mercadoLivreVisual?.title || resolved.title,
-      imageUrl: mercadoLivreVisual?.imageUrl || cleanText(input.originalImageUrl, 4_000) || resolved.imageUrl,
+      title: productVisual?.title || resolved.title,
+      imageUrl: productVisual?.imageUrl || cleanText(input.originalImageUrl, 4_000) || resolved.imageUrl,
       affiliateUrl,
       status,
       sourceGroup: cleanText(input.sourceGroup, 160),
@@ -151,7 +157,16 @@ export async function processProductInput(input: {
       messageExcerpt: message.slice(0, 4_000),
       errorMessage,
     });
-    if (record) saved.push(record);
+    if (record) {
+      saved.push({
+        ...record,
+        imageSource: productVisual?.imageUrl
+          ? resolved.store === "amazon" ? "amazon_catalog" : "mercadolivre_catalog"
+          : cleanText(input.originalImageUrl, 4_000) ? "original"
+          : resolved.imageUrl ? "resolved"
+          : null,
+      });
+    }
   }
   return saved;
 }

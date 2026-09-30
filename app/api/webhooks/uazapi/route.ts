@@ -213,15 +213,16 @@ export async function POST(request: Request) {
 
     const outgoingText = replaceConvertedLinks(extracted.text, products).slice(0, 4096);
     const primaryProduct = converted[0];
-    const mercadoLivreCatalogImage = primaryProduct?.store === "mercadolivre" && primaryProduct.imageUrl?.startsWith("https://")
-      ? { file: primaryProduct.imageUrl, mimetype: "image/jpeg", source: "mercadolivre_catalog" }
+    const officialProductImage = (primaryProduct?.imageSource === "mercadolivre_catalog" || primaryProduct?.imageSource === "amazon_catalog") && primaryProduct.imageUrl?.startsWith("https://")
+      ? { file: primaryProduct.imageUrl, mimetype: "image/jpeg", source: primaryProduct.imageSource }
       : null;
-    const outgoingImage = mercadoLivreCatalogImage || incomingImage;
-    if (mercadoLivreCatalogImage) {
+    const outgoingImage = officialProductImage || incomingImage;
+    if (officialProductImage) {
+      const storeName = primaryProduct.store === "amazon" ? "Amazon" : "Mercado Livre";
       await automationLog({
         level: "success",
         stage: "product_image",
-        message: `Imagem oficial do Mercado Livre encontrada para ${primaryProduct.productCode}.`,
+        message: `Imagem oficial da ${storeName} encontrada para ${primaryProduct.productCode}.`,
         groupJid: extracted.chatJid,
         productId: primaryProduct.id,
         details: { productCode: primaryProduct.productCode, imageUrl: primaryProduct.imageUrl, replacedIncomingImage: Boolean(incomingImage) },
@@ -314,7 +315,7 @@ export async function POST(request: Request) {
     await automationLog({
       level: "success",
       stage: "sent",
-      message: `Oferta enviada ao grupo de destino (${converted.length} produto(s))${mercadoLivreCatalogImage ? " com a foto oficial do Mercado Livre" : incomingImage ? " com a foto original" : ""}${buttonSent ? ` e botão “${buttonLabel}”` : ""}.`,
+      message: `Oferta enviada ao grupo de destino (${converted.length} produto(s))${officialProductImage ? ` com a foto oficial da ${primaryProduct.store === "amazon" ? "Amazon" : "Mercado Livre"}` : incomingImage ? " com a foto original" : ""}${buttonSent ? ` e botão “${buttonLabel}”` : ""}.`,
       groupJid: route.destinationJid,
       details: {
         sourceGroup: extracted.chatJid,
@@ -323,7 +324,7 @@ export async function POST(request: Request) {
         messageId: extracted.messageId,
         imageForwarded: Boolean(outgoingImage),
         mediaSource: outgoingImage?.source || null,
-        incomingImageReplaced: Boolean(mercadoLivreCatalogImage && incomingImage),
+        incomingImageReplaced: Boolean(officialProductImage && incomingImage),
         buttonSent,
         buttonLabel: buttonLabel || null,
         buttonUrl: buttonSent ? buttonUrl : null,
