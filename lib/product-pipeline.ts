@@ -126,7 +126,7 @@ export async function processProductInput(input: {
       } else {
         const generated = await generateMercadoLivreLinks([resolved.resolvedUrl], settings.mercadoLivreLabel, cookies);
         if (generated.ok && generated.results[0]) {
-          affiliateUrl = generated.results[0].long_url || generated.results[0].short_url || null;
+          affiliateUrl = generated.results[0].short_url || generated.results[0].long_url || null;
           status = affiliateUrl ? "converted" : "error";
           errorMessage = affiliateUrl ? null : "O Mercado Livre não retornou o link gerado.";
         } else {

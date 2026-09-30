@@ -63,10 +63,7 @@ async function downloadIncomingImage(
   extracted: ReturnType<typeof extractMessage>,
 ) {
   const hasThumbnail = extracted.thumbnail.length > 100;
-  if (!extracted.isImage && !hasThumbnail) return null;
-  if (!extracted.isImage && hasThumbnail) {
-    return { file: extracted.thumbnail, mimetype: "image/jpeg", source: "link_preview" };
-  }
+  if (!extracted.isImage) return null;
   if (extracted.mediaUrl) return { file: extracted.mediaUrl, mimetype: extracted.mimetype || undefined, source: "webhook" };
 
   const ids = [...new Set([extracted.downloadId, extracted.alternateDownloadId].filter(Boolean))];
@@ -147,8 +144,9 @@ export async function POST(request: Request) {
       messageId: extracted.messageId,
       messageType: extracted.messageType,
       hasText: Boolean(extracted.text),
-      hasImage: extracted.isImage || extracted.thumbnail.length > 100,
-      imageKind: extracted.isImage ? "attachment" : extracted.thumbnail.length > 100 ? "link_preview" : null,
+      hasImage: extracted.isImage,
+      hasLinkPreview: !extracted.isImage && extracted.thumbnail.length > 100,
+      imageKind: extracted.isImage ? "attachment" : null,
       hasMediaUrl: Boolean(extracted.mediaUrl),
       urlCount: extractUrls(extracted.text).length,
     },
@@ -213,7 +211,7 @@ export async function POST(request: Request) {
     }
 
     const outgoingText = replaceConvertedLinks(extracted.text, products).slice(0, 4096);
-    if ((extracted.isImage || extracted.thumbnail.length > 100) && !incomingImage) {
+    if (extracted.isImage && !incomingImage) {
       await automationLog({
         level: "warning",
         stage: "media",
