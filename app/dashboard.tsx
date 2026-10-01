@@ -99,6 +99,22 @@ type MercadoLivreTestResult = {
   }>;
 };
 
+type AmazonTestResult = {
+  ok: boolean;
+  trackingId?: string;
+  message: string;
+  results?: Array<{
+    originUrl: string;
+    ok: boolean;
+    asin?: string | null;
+    title?: string | null;
+    resolvedUrl?: string;
+    affiliateUrl?: string;
+    redirectCount?: number;
+    message?: string;
+  }>;
+};
+
 type ProductRecord = {
   id: string;
   store: "amazon" | "mercadolivre" | "unknown";
@@ -313,6 +329,9 @@ export default function Dashboard() {
   const [error, setError] = useState("");
   const [demo, setDemo] = useState(false);
   const [testUrl, setTestUrl] = useState("https://www.amazon.com.br/dp/B0D1234567");
+  const [amazonTestUrls, setAmazonTestUrls] = useState("https://www.amazon.com.br/Cabo-DisplayPort-Premium-Performance-Metros/dp/B08LY1BKFT/ref=sr_1_4");
+  const [amazonTestLoading, setAmazonTestLoading] = useState(false);
+  const [amazonTestResult, setAmazonTestResult] = useState<AmazonTestResult | null>(null);
   const [mlTestUrls, setMlTestUrls] = useState("https://produto.mercadolivre.com.br/MLB-1010954920");
   const [mlSessionCookies, setMlSessionCookies] = useState("");
   const [mlCookiesLoaded, setMlCookiesLoaded] = useState(false);
@@ -599,6 +618,32 @@ export default function Dashboard() {
     }
   }
 
+  async function testAmazonRequest() {
+    const urls = amazonTestUrls.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+    if (!urls.length) {
+      toast.error("Cole pelo menos um link da Amazon.");
+      return;
+    }
+    setAmazonTestLoading(true);
+    setAmazonTestResult(null);
+    try {
+      const response = await fetch("/api/affiliate/amazon/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urls }),
+      });
+      const result = await response.json() as AmazonTestResult;
+      setAmazonTestResult(result);
+      if (result.ok) toast.success(result.message);
+      else toast.warning(result.message);
+    } catch {
+      setAmazonTestResult({ ok: false, message: "O painel não conseguiu concluir a conversão agora." });
+      toast.error("Não foi possível gerar os links da Amazon.");
+    } finally {
+      setAmazonTestLoading(false);
+    }
+  }
+
   async function loadProducts() {
     setProductsLoading(true);
     setProductsError("");
@@ -873,6 +918,7 @@ export default function Dashboard() {
     catalog: ["Dados dos produtos", "Veja tudo o que foi extraído das ofertas enviadas da Amazon e do Mercado Livre."],
     discovery: ["Consultar produtos", "Pesquise recomendações, preços e filtros nos catálogos oficiais."],
     affiliates: ["Afiliados", "Defina como os links encontrados serão convertidos."],
+    amazon: ["Gerador Amazon", "Cole links longos ou encurtados e gere versões limpas com seu Tracking ID."],
     mercadolivre: ["Gerador Mercado Livre", "Gere links com sua tag e sua sessão de afiliado."],
     automation: ["Automação", "Acompanhe o fluxo das ofertas entre os grupos."],
     whatsapp: ["WhatsApp / UAZAPI", "Conecte a instância usada para ler e publicar nos grupos."],
@@ -894,6 +940,7 @@ export default function Dashboard() {
                 ["catalog", "Dados dos produtos", Database],
                 ["discovery", "Consultar produtos", Search],
                 ["affiliates", "Afiliados", Link2],
+                ["amazon", "Gerador Amazon", ShoppingBag],
                 ["mercadolivre", "Gerador ML", KeyRound],
                 ["automation", "Automação", Bot],
                 ["whatsapp", "WhatsApp / UAZAPI", Smartphone],
@@ -951,6 +998,7 @@ export default function Dashboard() {
               <TabsTrigger value="catalog" className="h-10 min-w-40 rounded-lg px-4">Dados dos produtos</TabsTrigger>
               <TabsTrigger value="discovery" className="h-10 min-w-40 rounded-lg px-4">Consultar produtos</TabsTrigger>
               <TabsTrigger value="affiliates" className="h-10 min-w-28 rounded-lg px-4">Afiliados</TabsTrigger>
+              <TabsTrigger value="amazon" className="h-10 min-w-36 rounded-lg px-4 data-[state=active]:bg-[#ff9900] data-[state=active]:text-[#111820]">Gerador Amazon</TabsTrigger>
               <TabsTrigger value="mercadolivre" className="h-10 min-w-32 rounded-lg px-4 data-[state=active]:bg-[#ffe600] data-[state=active]:text-[#231f00]">Gerador ML</TabsTrigger>
               <TabsTrigger value="automation" className="h-10 min-w-28 rounded-lg px-4">Automação</TabsTrigger>
               <TabsTrigger value="whatsapp" className="h-10 min-w-36 rounded-lg px-4">WhatsApp</TabsTrigger>
@@ -1295,6 +1343,68 @@ export default function Dashboard() {
                   </CardContent>
                 </Card>
 
+              </div>
+            </TabsContent>
+
+            <TabsContent value="amazon" id="amazon">
+              <div className="overflow-hidden rounded-2xl border border-[#4b3821] bg-[#111820] shadow-[0_18px_55px_rgba(0,0,0,.24)]">
+                <div className="flex flex-col gap-4 px-5 py-6 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+                  <div className="flex items-center gap-3">
+                    <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[#ff9900] text-[#111820]"><ShoppingBag className="size-5" /></div>
+                    <div><h2 className="text-xl font-extrabold tracking-[-0.03em] text-white">Gerador Amazon</h2><p className="mt-1 text-sm text-[#b9c5cf]">Transforme links longos, páginas de produto e amzn.to em links de afiliado limpos.</p></div>
+                  </div>
+                  <div className={`flex w-fit items-center gap-2 rounded-full px-3 py-2 text-sm font-bold ${affiliate.amazonTrackingId && affiliate.amazonEnabled ? "bg-[#1f3f2d] text-[#8ff0ad]" : "bg-white/8 text-[#c5cbd0]"}`}>
+                    <span className={`size-2 rounded-full ${affiliate.amazonTrackingId && affiliate.amazonEnabled ? "bg-[#53e27e]" : "bg-[#77818a]"}`} />
+                    {affiliate.amazonTrackingId && affiliate.amazonEnabled ? `Tracking ID: ${affiliate.amazonTrackingId}` : "Tracking ID não configurado"}
+                  </div>
+                </div>
+              </div>
+
+              {amazonTestResult && (
+                <Card className={`mt-5 overflow-hidden ${amazonTestResult.ok ? "border-[#6d4b1f] bg-[#15130f]" : "border-[#784235] bg-[#21110e]"}`}>
+                  <CardHeader className="border-b border-white/8"><CardTitle className="text-lg">{amazonTestResult.ok ? "Links gerados" : "Não foi possível gerar"}</CardTitle><CardDescription>{amazonTestResult.message}</CardDescription></CardHeader>
+                  <CardContent className="grid gap-3 pt-5 lg:grid-cols-2">
+                    {amazonTestResult.results?.map((item, index) => (
+                      <div key={`${item.originUrl}-${index}`} className="rounded-xl border border-white/10 bg-[#090d11] p-4">
+                        <p className="break-all text-xs leading-5 text-[#84919b]">{item.originUrl}</p>
+                        {item.ok && item.affiliateUrl ? (
+                          <>
+                            <div className="mt-3 flex flex-wrap items-center gap-2">
+                              {item.asin && <Badge className="border border-[#80591f] bg-[#2c2112] text-[#ffbd59]">ASIN {item.asin}</Badge>}
+                              {Boolean(item.redirectCount) && <Badge className="border border-[#35414b] bg-[#151c22] text-[#b9c5cf]">{item.redirectCount} redirecionamento(s)</Badge>}
+                            </div>
+                            {item.title && <p className="mt-3 line-clamp-2 text-sm font-semibold text-white">{item.title}</p>}
+                            <a href={item.affiliateUrl} target="_blank" rel="noreferrer" className="mt-3 block break-all text-sm font-bold leading-6 text-[#ffb84d] underline underline-offset-2">{item.affiliateUrl}</a>
+                            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                              <Button variant="outline" size="sm" onClick={() => { void navigator.clipboard.writeText(item.affiliateUrl || ""); toast.success("Link copiado."); }} className="rounded-lg border-[#4a3a24] bg-[#211a11] text-white hover:bg-[#2d2316]"><Copy /> Copiar link</Button>
+                              <Button asChild variant="outline" size="sm" className="rounded-lg border-[#35414b] bg-[#151c22] text-white hover:bg-[#202a32]"><a href={item.affiliateUrl} target="_blank" rel="noreferrer"><ExternalLink /> Abrir</a></Button>
+                            </div>
+                          </>
+                        ) : <p className="mt-3 text-sm font-semibold text-[#ff9b92]">{item.message || "Link não reconhecido como Amazon Brasil."}</p>}
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+
+              <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+                <Card className="border-[#dce7df] shadow-[0_10px_30px_rgba(7,20,22,.05)]">
+                  <CardHeader><CardTitle className="flex items-center gap-2 text-xl"><Link2 className="size-5 text-[#ff9900]" /> Produtos para converter</CardTitle><CardDescription>Cole até 20 links da Amazon, um por linha. Links curtos são seguidos até o destino final.</CardDescription></CardHeader>
+                  <CardContent className="space-y-4">
+                    <Textarea value={amazonTestUrls} onChange={(event) => { setAmazonTestUrls(event.target.value); setAmazonTestResult(null); }} rows={8} spellCheck={false} placeholder="https://www.amazon.com.br/.../dp/B08LY1BKFT\nhttps://amzn.to/..." className="min-h-52 resize-y rounded-xl font-mono text-xs leading-5" />
+                    <Button onClick={() => void testAmazonRequest()} disabled={amazonTestLoading} className="h-12 w-full rounded-xl bg-[#ff9900] font-bold text-[#111820] hover:bg-[#ffad33] sm:w-auto">{amazonTestLoading ? <LoaderCircle className="animate-spin" /> : <Link2 />} Gerar links da Amazon</Button>
+                  </CardContent>
+                </Card>
+
+                <Card className="h-fit border-[#27322b] bg-[#0b100d] text-white shadow-none">
+                  <CardHeader><CardTitle className="text-lg">Como o gerador trata o link</CardTitle><CardDescription>Você não precisa limpar a URL antes de colar.</CardDescription></CardHeader>
+                  <CardContent className="space-y-4 text-sm leading-6 text-[#aab5ad]">
+                    <div className="rounded-xl border border-[#3f3525] bg-[#17130d] p-4"><p className="font-bold text-[#ffb84d]">Produto identificado</p><p className="mt-1">Extrai o ASIN e cria <span className="break-all font-mono text-xs text-white">amazon.com.br/dp/ASIN?tag=SEU-ID</span>.</p></div>
+                    <div className="rounded-xl border border-[#27322b] bg-[#080c09] p-4"><p className="font-bold text-white">Link encurtado</p><p className="mt-1">Segue os redirecionamentos de amzn.to e outros encurtadores até encontrar a Amazon.</p></div>
+                    <div className="rounded-xl border border-[#27322b] bg-[#080c09] p-4"><p className="font-bold text-white">Página de serviço</p><p className="mt-1">Em links como Prime, preserva a página final e substitui o parâmetro <span className="font-mono text-xs">tag</span>.</p></div>
+                    <Button onClick={() => setActiveTab("affiliates")} variant="outline" className="w-full rounded-xl border-[#4a3a24] bg-[#211a11] text-white hover:bg-[#2d2316]"><Settings2 /> Configurar Tracking ID</Button>
+                  </CardContent>
+                </Card>
               </div>
             </TabsContent>
 
