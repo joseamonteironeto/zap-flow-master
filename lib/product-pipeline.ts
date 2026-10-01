@@ -130,8 +130,18 @@ export async function processProductInput(input: {
     let status: ProductStatus = resolved.store === "unknown" ? "unsupported" : "found";
     let errorMessage = resolved.errorMessage;
 
-    if (resolved.store === "amazon" && resolved.productCode && settings?.amazonEnabled && settings.amazonTrackingId) {
-      affiliateUrl = `https://www.amazon.com.br/dp/${resolved.productCode}?tag=${encodeURIComponent(settings.amazonTrackingId)}`;
+    if (resolved.store === "amazon" && settings?.amazonEnabled && settings.amazonTrackingId) {
+      if (resolved.productCode) {
+        affiliateUrl = `https://www.amazon.com.br/dp/${resolved.productCode}?tag=${encodeURIComponent(settings.amazonTrackingId)}`;
+      } else {
+        try {
+          const tagged = new URL(resolved.resolvedUrl);
+          tagged.searchParams.set("tag", settings.amazonTrackingId);
+          affiliateUrl = tagged.toString();
+        } catch {
+          affiliateUrl = null;
+        }
+      }
       status = "converted";
       errorMessage = null;
     } else if (resolved.store === "mercadolivre" && resolved.productCode && settings?.mercadoLivreEnabled && settings.mercadoLivreLabel) {

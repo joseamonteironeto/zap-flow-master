@@ -54,6 +54,12 @@ function identify(url: URL) {
   return null;
 }
 
+function identifyStore(url: URL): Store {
+  if (amazonHosts.test(url.hostname)) return "amazon";
+  if (mercadoLivreHosts.test(url.hostname)) return "mercadolivre";
+  return "unknown";
+}
+
 function extractMeta(html: string) {
   const value = (property: string) => {
     const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -150,7 +156,7 @@ async function limitedText(response: Response, maxBytes = 700_000) {
 
 export function extractUrls(input: string) {
   const matches = input.match(/https?:\/\/[^\s<>"']+/gi) || [];
-  return [...new Set(matches.map((value) => value.replace(/[),.;!?]+$/, "")))].slice(0, 10);
+  return [...new Set(matches.map((value) => value.replace(/[),.;!?]+$/, "")))];
 }
 
 export async function resolveProductUrl(sourceUrl: string): Promise<ResolvedProduct> {
@@ -216,19 +222,30 @@ export async function resolveProductUrl(sourceUrl: string): Promise<ResolvedProd
       current = target;
       redirectCount += 1;
     } catch {
-      return { sourceUrl, resolvedUrl: current.href, store: "unknown", productCode: null, title, imageUrl, redirectCount, errorMessage: "O destino não respondeu ou bloqueou a consulta automática." };
+      const store = identifyStore(current);
+      return {
+        sourceUrl,
+        resolvedUrl: current.href,
+        store,
+        productCode: null,
+        title,
+        imageUrl,
+        redirectCount,
+        errorMessage: store === "unknown" ? "O destino não respondeu ou bloqueou a consulta automática." : null,
+      };
     }
   }
 
   const finalIdentity = identify(current);
+  const finalStore = finalIdentity?.store || identifyStore(current);
   return {
     sourceUrl,
     resolvedUrl: finalIdentity?.canonicalUrl || current.href,
-    store: finalIdentity?.store || "unknown",
+    store: finalStore,
     productCode: finalIdentity?.productCode || null,
     title,
     imageUrl,
     redirectCount,
-    errorMessage: finalIdentity ? null : "O destino final não é Amazon nem Mercado Livre, ou não expôs o produto.",
+    errorMessage: finalStore === "unknown" ? "O destino final não é Amazon nem Mercado Livre, ou não expôs o produto." : null,
   };
 }

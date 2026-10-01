@@ -134,6 +134,36 @@ type AutomationLog = {
   createdAt: string;
 };
 
+type CatalogItem = {
+  id: string;
+  title: string;
+  imageUrl?: string | null;
+  url?: string | null;
+  price?: number | null;
+  originalPrice?: number | null;
+  currency?: string | null;
+  brand?: string | null;
+  condition?: string | null;
+  availability?: string | null;
+  availableQuantity?: number | null;
+  soldQuantity?: number | null;
+  freeShipping?: boolean;
+  seller?: string | number | null;
+  categoryId?: string | null;
+  officialStore?: string | null;
+};
+
+type CatalogSearchResponse = {
+  store?: "amazon" | "mercadolivre";
+  query?: string;
+  items?: CatalogItem[];
+  total?: number;
+  filters?: unknown;
+  sorts?: Array<string | { id: string; name: string }>;
+  error?: string;
+  credentialsRequired?: boolean;
+};
+
 type ModelContext = {
   registerTool: (tool: {
     name: string;
@@ -254,6 +284,18 @@ function productDataValue(value: unknown) {
   return JSON.stringify(value);
 }
 
+function catalogFilterLabels(value: unknown) {
+  if (Array.isArray(value)) return value.map((item) => {
+    const row = item as { name?: string; displayName?: string; id?: string };
+    return row.name || row.displayName || row.id || "Filtro";
+  }).filter(Boolean);
+  if (value && typeof value === "object") {
+    const rows = value as Record<string, { displayName?: string; id?: string }>;
+    return Object.entries(rows).map(([key, item]) => item?.displayName || item?.id || key);
+  }
+  return [];
+}
+
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("groups");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -294,6 +336,22 @@ export default function Dashboard() {
   const [buttonSettings, setButtonSettings] = useState<AutomationButtonSettings>(defaultAutomationButtons);
   const [buttonDraft, setButtonDraft] = useState("");
   const [buttonSettingsSaving, setButtonSettingsSaving] = useState(false);
+  const [catalogQuery, setCatalogQuery] = useState("");
+  const [catalogSearchStore, setCatalogSearchStore] = useState<"mercadolivre" | "amazon">("mercadolivre");
+  const [catalogSort, setCatalogSort] = useState("");
+  const [catalogMinPrice, setCatalogMinPrice] = useState("");
+  const [catalogMaxPrice, setCatalogMaxPrice] = useState("");
+  const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
+  const [catalogFilters, setCatalogFilters] = useState<unknown>(null);
+  const [catalogSorts, setCatalogSorts] = useState<Array<string | { id: string; name: string }>>([]);
+  const [catalogTotal, setCatalogTotal] = useState(0);
+  const [catalogSearching, setCatalogSearching] = useState(false);
+  const [catalogError, setCatalogError] = useState("");
+  const [catalogCredentials, setCatalogCredentials] = useState({ amazonConfigured: false, mercadoLivreConfigured: false });
+  const [amazonClientId, setAmazonClientId] = useState("");
+  const [amazonClientSecret, setAmazonClientSecret] = useState("");
+  const [mercadoLivreAccessToken, setMercadoLivreAccessToken] = useState("");
+  const [catalogCredentialsSaving, setCatalogCredentialsSaving] = useState(false);
 
   async function loadData() {
     setLoading(true);
@@ -449,6 +507,11 @@ export default function Dashboard() {
     { value: catalogProducts.length, label: "produtos enviados", Icon: Database },
     { value: catalogProducts.filter((product) => product.store === "mercadolivre").length, label: "Mercado Livre", Icon: ShoppingBag },
     { value: catalogProducts.filter((product) => product.store === "amazon").length, label: "Amazon", Icon: PackageSearch },
+  ];
+  const discoveryStatItems = [
+    { value: catalogItems.length, label: "resultados exibidos", Icon: Search },
+    { value: catalogTotal, label: "produtos encontrados", Icon: PackageSearch },
+    { value: catalogSorts.length, label: "ordenações disponíveis", Icon: Settings2 },
   ];
 
   const convertedAmazonUrl = useMemo(() => {
@@ -625,6 +688,64 @@ export default function Dashboard() {
     }
   }
 
+  async function loadCatalogCredentialStatus() {
+    try {
+      const response = await fetch("/api/catalog/credentials");
+      const result = await response.json() as typeof catalogCredentials;
+      if (response.ok) setCatalogCredentials(result);
+    } catch {}
+  }
+
+  async function saveCatalogCredentials() {
+    if (!whatsapp.instanceToken.trim()) return toast.error("Informe o token da UAZAPI para autorizar o salvamento seguro.");
+    setCatalogCredentialsSaving(true);
+    try {
+      const response = await fetch("/api/catalog/credentials", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "X-Promozap-Admin-Token": whatsapp.instanceToken.trim() },
+        body: JSON.stringify({ amazonClientId, amazonClientSecret, mercadoLivreAccessToken }),
+      });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error || "Não foi possível salvar as credenciais.");
+      setAmazonClientId("");
+      setAmazonClientSecret("");
+      setMercadoLivreAccessToken("");
+      await loadCatalogCredentialStatus();
+      toast.success("Credenciais de catálogo salvas com criptografia.");
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "Não foi possível salvar as credenciais.");
+    } finally {
+      setCatalogCredentialsSaving(false);
+    }
+  }
+
+  async function searchCatalog() {
+    if (catalogSearchStore === "amazon" && !catalogQuery.trim()) return toast.error("Informe o que deseja buscar na Amazon.");
+    setCatalogSearching(true);
+    setCatalogError("");
+    try {
+      const params = new URLSearchParams({ store: catalogSearchStore });
+      if (catalogQuery.trim()) params.set("q", catalogQuery.trim());
+      if (catalogSort) params.set("sort", catalogSort);
+      if (catalogMinPrice) params.set("minPrice", catalogMinPrice);
+      if (catalogMaxPrice) params.set("maxPrice", catalogMaxPrice);
+      const response = await fetch(`/api/catalog/search?${params}`);
+      const result = await response.json() as CatalogSearchResponse;
+      if (!response.ok) throw new Error(result.error || "Não foi possível consultar os produtos.");
+      setCatalogItems(result.items || []);
+      setCatalogFilters(result.filters || null);
+      setCatalogSorts(result.sorts || []);
+      setCatalogTotal(result.total || 0);
+      if (!catalogQuery.trim() && result.query) setCatalogQuery(result.query);
+    } catch (caught) {
+      setCatalogItems([]);
+      setCatalogFilters(null);
+      setCatalogError(caught instanceof Error ? caught.message : "Não foi possível consultar os produtos.");
+    } finally {
+      setCatalogSearching(false);
+    }
+  }
+
   async function analyzeProductLinks() {
     if (!productInput.trim()) {
       toast.error("Cole uma mensagem ou um link para analisar.");
@@ -698,6 +819,10 @@ export default function Dashboard() {
     return () => window.clearInterval(timer);
   }, [activeTab]);
 
+  useEffect(() => {
+    if (activeTab === "discovery") void loadCatalogCredentialStatus();
+  }, [activeTab]);
+
   async function testWhatsappConnection() {
     if (!whatsapp.serverUrl.trim() || !whatsapp.instanceToken.trim()) {
       toast.error("Informe a URL e o token da instância.");
@@ -746,6 +871,7 @@ export default function Dashboard() {
     groups: ["Grupos", "Organize fontes, destinos e categorias da operação."],
     products: ["Produtos encontrados", "Acompanhe cada link identificado, convertido e enviado."],
     catalog: ["Dados dos produtos", "Veja tudo o que foi extraído das ofertas enviadas da Amazon e do Mercado Livre."],
+    discovery: ["Consultar produtos", "Pesquise recomendações, preços e filtros nos catálogos oficiais."],
     affiliates: ["Afiliados", "Defina como os links encontrados serão convertidos."],
     mercadolivre: ["Gerador Mercado Livre", "Gere links com sua tag e sua sessão de afiliado."],
     automation: ["Automação", "Acompanhe o fluxo das ofertas entre os grupos."],
@@ -766,6 +892,7 @@ export default function Dashboard() {
                 ["groups", "Grupos", UsersRound],
                 ["products", "Produtos", PackageSearch],
                 ["catalog", "Dados dos produtos", Database],
+                ["discovery", "Consultar produtos", Search],
                 ["affiliates", "Afiliados", Link2],
                 ["mercadolivre", "Gerador ML", KeyRound],
                 ["automation", "Automação", Bot],
@@ -805,7 +932,7 @@ export default function Dashboard() {
             </div>
 
           <div className="mb-6 grid grid-cols-3 overflow-hidden rounded-2xl border border-[#27322b] bg-[#0b100d] shadow-[0_18px_50px_rgba(0,0,0,.28)]">
-            {(activeTab === "products" ? productStatItems : activeTab === "catalog" ? catalogStatItems : statItems).map(({ value, label, Icon }, index) => (
+            {(activeTab === "products" ? productStatItems : activeTab === "catalog" ? catalogStatItems : activeTab === "discovery" ? discoveryStatItems : statItems).map(({ value, label, Icon }, index) => (
               <div key={label} className={`px-3 py-4 sm:px-5 ${index ? "border-l border-[#27322b]" : ""}`}>
                 <Icon className="mb-2 size-4 text-[#00a947]" />
                 <p className="text-2xl font-extrabold tracking-tight">{value}</p>
@@ -822,6 +949,7 @@ export default function Dashboard() {
               <TabsTrigger value="groups" className="h-10 min-w-28 rounded-lg px-4">Grupos</TabsTrigger>
               <TabsTrigger value="products" className="h-10 min-w-28 rounded-lg px-4">Produtos</TabsTrigger>
               <TabsTrigger value="catalog" className="h-10 min-w-40 rounded-lg px-4">Dados dos produtos</TabsTrigger>
+              <TabsTrigger value="discovery" className="h-10 min-w-40 rounded-lg px-4">Consultar produtos</TabsTrigger>
               <TabsTrigger value="affiliates" className="h-10 min-w-28 rounded-lg px-4">Afiliados</TabsTrigger>
               <TabsTrigger value="mercadolivre" className="h-10 min-w-32 rounded-lg px-4 data-[state=active]:bg-[#ffe600] data-[state=active]:text-[#231f00]">Gerador ML</TabsTrigger>
               <TabsTrigger value="automation" className="h-10 min-w-28 rounded-lg px-4">Automação</TabsTrigger>
@@ -1081,6 +1209,46 @@ export default function Dashboard() {
                     })}
                   </div>
                 )}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="discovery" id="consultar-produtos">
+              <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+                <div className="space-y-5">
+                  <Card className="border-[#27322b] bg-[#0b100d] shadow-none">
+                    <CardHeader className="border-b border-[#27322b]"><CardTitle className="text-xl">Pesquisa de catálogo</CardTitle><CardDescription>Consulte produtos e veja os filtros devolvidos pelas APIs das lojas.</CardDescription></CardHeader>
+                    <CardContent className="space-y-4 pt-5">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="space-y-2 text-sm font-semibold">Loja<NativeSelect value={catalogSearchStore} onChange={(event) => { setCatalogSearchStore(event.target.value as "amazon" | "mercadolivre"); setCatalogItems([]); setCatalogFilters(null); setCatalogSort(""); setCatalogError(""); }}><NativeSelectOption value="mercadolivre">Mercado Livre</NativeSelectOption><NativeSelectOption value="amazon">Amazon</NativeSelectOption></NativeSelect></label>
+                        <label className="space-y-2 text-sm font-semibold">Ordenar<NativeSelect value={catalogSort} onChange={(event) => setCatalogSort(event.target.value)}><NativeSelectOption value="">Relevância</NativeSelectOption>{catalogSorts.map((sort) => { const value = typeof sort === "string" ? sort : sort.id; const label = typeof sort === "string" ? sort : sort.name; return <NativeSelectOption key={value} value={value}>{label}</NativeSelectOption>; })}</NativeSelect></label>
+                      </div>
+                      <label className="block space-y-2 text-sm font-semibold">Produto ou palavra-chave<div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#718079]" /><Input value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void searchCatalog(); }} placeholder={catalogSearchStore === "amazon" ? "Ex.: smartphone, cafeteira, notebook" : "Deixe vazio para buscar uma tendência"} className="h-12 border-[#34423a] bg-[#080c09] pl-10" /></div></label>
+                      <div className="grid gap-3 sm:grid-cols-2"><label className="space-y-2 text-sm font-semibold">Preço mínimo<Input type="number" min="0" value={catalogMinPrice} onChange={(event) => setCatalogMinPrice(event.target.value)} placeholder="R$ 0" className="h-11 border-[#34423a] bg-[#080c09]" /></label><label className="space-y-2 text-sm font-semibold">Preço máximo<Input type="number" min="0" value={catalogMaxPrice} onChange={(event) => setCatalogMaxPrice(event.target.value)} placeholder="Sem limite" className="h-11 border-[#34423a] bg-[#080c09]" /></label></div>
+                      <Button onClick={() => void searchCatalog()} disabled={catalogSearching} className="h-12 w-full rounded-xl bg-[#24c75a] font-bold text-[#04140a] hover:bg-[#46df75]">{catalogSearching ? <LoaderCircle className="animate-spin" /> : <Search />} {catalogQuery.trim() ? "Consultar produtos" : "Ver recomendações"}</Button>
+                      {catalogError && <div className="rounded-xl border border-[#784235] bg-[#21110e] p-3 text-sm leading-6 text-[#ffb0a7]">{catalogError}</div>}
+                    </CardContent>
+                  </Card>
+
+                  {catalogItems.length > 0 && <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">{catalogItems.map((item) => (
+                    <Card key={item.id} className="overflow-hidden border-[#27322b] bg-[#0b100d] shadow-none">
+                      <div className="aspect-[4/3] bg-white p-3">{item.imageUrl ? <img src={item.imageUrl} alt={item.title} className="h-full w-full object-contain" loading="lazy" /> : <div className="grid h-full place-items-center"><ShoppingBag className="size-8 text-[#607267]" /></div>}</div>
+                      <CardContent className="space-y-3 p-4"><div className="flex flex-wrap gap-2"><Badge className={catalogSearchStore === "amazon" ? "bg-[#ff9900] text-[#231500]" : "bg-[#ffe600] text-[#231f00]"}>{catalogSearchStore === "amazon" ? "Amazon" : "Mercado Livre"}</Badge>{item.freeShipping && <Badge className="border border-[#2d8a4b] bg-[#153520] text-[#8af3a5]">Frete grátis</Badge>}</div><h3 className="line-clamp-3 min-h-[4.5rem] font-bold leading-6">{item.title}</h3><div><p className="text-2xl font-extrabold text-[#62ef8b]">{item.price != null ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: item.currency || "BRL" }).format(item.price) : "Preço não informado"}</p>{item.originalPrice && item.originalPrice > (item.price || 0) ? <p className="text-sm text-[#718079] line-through">{new Intl.NumberFormat("pt-BR", { style: "currency", currency: item.currency || "BRL" }).format(item.originalPrice)}</p> : null}</div><div className="space-y-1 text-xs text-[#94a69b]">{item.brand && <p>Marca: {item.brand}</p>}{item.seller && <p>Vendedor: {item.seller}</p>}{item.soldQuantity != null && <p>Vendidos: {item.soldQuantity}</p>}{item.availability && <p>{item.availability}</p>}</div>{item.url && <Button asChild variant="outline" className="w-full border-[#34423a] bg-[#111813] text-white hover:bg-[#19231c]"><a href={item.url} target="_blank" rel="noreferrer"><ExternalLink /> Abrir produto</a></Button>}</CardContent>
+                    </Card>
+                  ))}</div>}
+                </div>
+
+                <div className="space-y-5">
+                  <Card className="border-[#27322b] bg-[#0b100d] shadow-none"><CardHeader><CardTitle className="text-base">Filtros disponíveis</CardTitle><CardDescription>São atualizados a cada busca conforme a categoria e a loja.</CardDescription></CardHeader><CardContent>{catalogFilterLabels(catalogFilters).length ? <div className="flex flex-wrap gap-2">{catalogFilterLabels(catalogFilters).map((label) => <Badge key={label} className="border border-[#35513e] bg-[#102018] text-[#dff7e5]">{label}</Badge>)}</div> : <p className="text-sm leading-6 text-[#94a69b]">Faça uma consulta para ver categorias, marcas, condição, frete, faixa de preço e outros refinamentos retornados pela loja.</p>} {catalogFilters ? <details className="mt-4 rounded-xl border border-[#27322b] bg-[#080c09]"><summary className="cursor-pointer px-3 py-3 text-sm font-semibold">Ver filtros completos (JSON)</summary><pre className="max-h-72 overflow-auto border-t border-[#27322b] p-3 text-xs leading-5 text-[#8fd9a4]">{JSON.stringify(catalogFilters, null, 2)}</pre></details> : null}</CardContent></Card>
+
+                  <Card className="border-[#27322b] bg-[#0b100d] shadow-none"><CardHeader><CardTitle className="flex items-center gap-2 text-base"><KeyRound className="size-4 text-[#62ef8b]" /> Credenciais das APIs</CardTitle><CardDescription>Os segredos ficam criptografados e nunca voltam para o navegador.</CardDescription></CardHeader><CardContent className="space-y-4">
+                    <div className="rounded-xl border border-[#27322b] bg-[#080c09] p-3"><div className="flex items-center justify-between"><p className="font-bold">Amazon Creators API</p><Badge className={catalogCredentials.amazonConfigured ? "bg-[#153520] text-[#8af3a5]" : "bg-[#2a230c] text-[#f4d35e]"}>{catalogCredentials.amazonConfigured ? "Conectada" : "Aguardando aprovação"}</Badge></div><p className="mt-2 text-xs leading-5 text-[#94a69b]">Sua conta mostra que ainda não está aprovada para criar credenciais. O painel já está pronto para recebê-las.</p></div>
+                    <Input value={amazonClientId} onChange={(event) => setAmazonClientId(event.target.value)} placeholder="Amazon Credential ID" className="h-11 border-[#34423a] bg-[#080c09]" />
+                    <Input type="password" value={amazonClientSecret} onChange={(event) => setAmazonClientSecret(event.target.value)} placeholder="Amazon Credential Secret" className="h-11 border-[#34423a] bg-[#080c09]" />
+                    <div className="rounded-xl border border-[#27322b] bg-[#080c09] p-3"><div className="flex items-center justify-between"><p className="font-bold">Mercado Livre API</p><Badge className={catalogCredentials.mercadoLivreConfigured ? "bg-[#153520] text-[#8af3a5]" : "bg-[#202622] text-[#c0c9c3]"}>{catalogCredentials.mercadoLivreConfigured ? "Token salvo" : "Consulta pública"}</Badge></div><p className="mt-2 text-xs leading-5 text-[#94a69b]">A busca tenta o catálogo público. Um Access Token oficial pode ser salvo se o Mercado Livre exigir autenticação.</p></div>
+                    <Input type="password" value={mercadoLivreAccessToken} onChange={(event) => setMercadoLivreAccessToken(event.target.value)} placeholder="Mercado Livre Access Token (opcional)" className="h-11 border-[#34423a] bg-[#080c09]" />
+                    <Button onClick={() => void saveCatalogCredentials()} disabled={catalogCredentialsSaving || (!amazonClientId && !amazonClientSecret && !mercadoLivreAccessToken)} variant="outline" className="w-full border-[#2e7041] bg-[#112a19] text-[#8ef1aa] hover:bg-[#183b24]">{catalogCredentialsSaving ? <LoaderCircle className="animate-spin" /> : <ShieldCheck />} Salvar com segurança</Button>
+                  </CardContent></Card>
+                </div>
               </div>
             </TabsContent>
 
