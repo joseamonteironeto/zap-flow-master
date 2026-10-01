@@ -68,6 +68,8 @@ async function saveProduct(product: {
        source_group, destination_group, message_excerpt, redirect_count, occurrences, error_message, found_at, last_seen_at, sent_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, NULL, ?)
     ON CONFLICT(fingerprint) DO UPDATE SET
+      store = excluded.store,
+      product_code = COALESCE(excluded.product_code, product_events.product_code),
       title = COALESCE(excluded.title, product_events.title),
       image_url = COALESCE(excluded.image_url, product_events.image_url),
       product_data_json = COALESCE(excluded.product_data_json, product_events.product_data_json),

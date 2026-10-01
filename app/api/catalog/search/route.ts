@@ -36,7 +36,12 @@ async function searchMercadoLivre(params: URLSearchParams) {
   if (minPrice || maxPrice) target.searchParams.set("price", `${minPrice || "*"}-${maxPrice || "*"}`);
   const response = await fetch(target, { headers, signal: AbortSignal.timeout(15_000) });
   const data = await response.json().catch(() => ({})) as Record<string, any>;
-  if (!response.ok) throw new Error(data.message || `O Mercado Livre recusou a consulta (HTTP ${response.status}).`);
+  if (!response.ok) {
+    if (!token && (response.status === 401 || response.status === 403)) {
+      throw new Error("O Mercado Livre exige um Access Token oficial para esta consulta. Crie uma aplicação no DevCenter e salve o token nesta aba.");
+    }
+    throw new Error(data.message || `O Mercado Livre recusou a consulta (HTTP ${response.status}).`);
+  }
   const items = (data.results || []).map((item: Record<string, any>) => ({
     id: item.id,
     title: item.title,
