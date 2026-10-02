@@ -5,6 +5,11 @@ type BrowserCookie = {
   value?: unknown;
   domain?: unknown;
   expirationDate?: unknown;
+  path?: unknown;
+  secure?: unknown;
+  httpOnly?: unknown;
+  sameSite?: unknown;
+  [key: string]: unknown;
 };
 
 export type GeneratedLink = {
@@ -36,6 +41,83 @@ export function parseMercadoLivreCookies(value: unknown) {
   if (!valid.length) return null;
   const header = valid.map((item) => `${item.name}=${item.value}`).join("; ");
   return header.length <= 32_000 ? { header, count: valid.length } : null;
+}
+
+function responseCookies(headers: Headers) {
+  const extended = headers as Headers & { getSetCookie?: () => string[] };
+  const values = extended.getSetCookie?.() || [];
+  if (values.length) return values;
+  const combined = headers.get("set-cookie");
+  return combined ? combined.split(/,(?=\s*[^;,=\s]+=[^;,]*)/) : [];
+}
+
+function parseCookieExpiry(attributes: string[]) {
+  const maxAge = attributes.find((attribute) => /^max-age=/i.test(attribute));
+  if (maxAge) {
+    const seconds = Number(maxAge.slice(maxAge.indexOf("=") + 1));
+    if (Number.isFinite(seconds)) return Math.floor(Date.now() / 1000) + seconds;
+  }
+  const expires = attributes.find((attribute) => /^expires=/i.test(attribute));
+  if (!expires) return null;
+  const timestamp = Date.parse(expires.slice(expires.indexOf("=") + 1));
+  return Number.isFinite(timestamp) ? Math.floor(timestamp / 1000) : null;
+}
+
+export function mergeMercadoLivreCookies(value: unknown, setCookieHeaders: string[]) {
+  if (typeof value !== "string" || !setCookieHeaders.length) return null;
+  let cookies: BrowserCookie[];
+  try {
+    cookies = JSON.parse(value) as BrowserCookie[];
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(cookies)) return null;
+
+  let changed = false;
+  for (const header of setCookieHeaders) {
+    const parts = header.split(";").map((part) => part.trim()).filter(Boolean);
+    const separator = parts[0]?.indexOf("=") ?? -1;
+    if (separator <= 0) continue;
+    const name = parts[0].slice(0, separator);
+    const cookieValue = parts[0].slice(separator + 1);
+    if (!name || /[;\r\n]/.test(name) || /[\r\n]/.test(cookieValue)) continue;
+    const domainAttribute = parts.find((part) => /^domain=/i.test(part));
+    const rawDomain = domainAttribute?.slice(domainAttribute.indexOf("=") + 1) || ".mercadolivre.com.br";
+    const normalizedDomain = rawDomain.replace(/^\./, "").toLowerCase();
+    if (normalizedDomain !== "mercadolivre.com.br" && normalizedDomain !== "www.mercadolivre.com.br") continue;
+    const pathAttribute = parts.find((part) => /^path=/i.test(part));
+    const path = pathAttribute?.slice(pathAttribute.indexOf("=") + 1) || "/";
+    const expiry = parseCookieExpiry(parts.slice(1));
+    const existingIndex = cookies.findIndex((cookie) => cookie.name === name
+      && String(cookie.domain || "").replace(/^\./, "").toLowerCase() === normalizedDomain
+      && String(cookie.path || "/") === path);
+    if (!cookieValue || (expiry !== null && expiry <= Date.now() / 1000)) {
+      if (existingIndex >= 0) {
+        cookies.splice(existingIndex, 1);
+        changed = true;
+      }
+      continue;
+    }
+    const next: BrowserCookie = {
+      ...(existingIndex >= 0 ? cookies[existingIndex] : {}),
+      name,
+      value: cookieValue,
+      domain: rawDomain,
+      path,
+      secure: parts.some((part) => /^secure$/i.test(part)),
+      httpOnly: parts.some((part) => /^httponly$/i.test(part)),
+    };
+    if (expiry !== null) next.expirationDate = expiry;
+    const sameSite = parts.find((part) => /^samesite=/i.test(part));
+    if (sameSite) next.sameSite = sameSite.slice(sameSite.indexOf("=") + 1).toLowerCase();
+    if (existingIndex >= 0) cookies[existingIndex] = next;
+    else cookies.push(next);
+    changed = true;
+  }
+
+  if (!changed) return null;
+  const refreshed = JSON.stringify(cookies);
+  return parseMercadoLivreCookies(refreshed) ? refreshed : null;
 }
 
 function decodeResponse(value: string) {
@@ -72,14 +154,16 @@ export async function generateMercadoLivreLinks(urls: string[], tag: string, coo
       signal: AbortSignal.timeout(15_000),
     });
     const decoded = decodeResponse(await upstream.text());
+    const refreshedCookies = mergeMercadoLivreCookies(cookies, responseCookies(upstream.headers));
     if (upstream.ok && decoded?.status === 200 && Array.isArray(decoded.urls)) {
-      return { ok: true as const, connected: true, cookieCount: session.count, upstreamStatus: upstream.status, results: decoded.urls };
+      return { ok: true as const, connected: true, cookieCount: session.count, upstreamStatus: upstream.status, results: decoded.urls, refreshedCookies };
     }
     const expired = upstream.status === 401 || upstream.status === 403 || upstream.status === 302;
     return {
       ok: false as const,
       connected: false,
       upstreamStatus: upstream.status,
+      refreshedCookies,
       message: expired ? "A sessão foi recusada ou expirou. Exporte cookies novos." : decoded?.message || "O Mercado Livre não gerou o link.",
     };
   } catch {

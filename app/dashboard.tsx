@@ -88,6 +88,7 @@ type AutomationButtonSettings = {
 type MercadoLivreTestResult = {
   ok: boolean;
   connected?: boolean;
+  sessionRefreshed?: boolean;
   cookieCount?: number;
   upstreamStatus?: number;
   message: string;
@@ -594,13 +595,16 @@ export default function Dashboard() {
     try {
       const response = await fetch("/api/affiliate/mercadolivre/generate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(whatsapp.instanceToken.trim() ? { "X-Promozap-Admin-Token": whatsapp.instanceToken.trim() } : {}),
+        },
         body: JSON.stringify({ urls, tag: affiliate.mercadoLivreLabel.trim() || "promozap", cookies: mlSessionCookies }),
       });
       const result = await response.json() as MercadoLivreTestResult;
       setMlTestResult(result);
       if (result.ok) {
-        toast.success("Links gerados com sua sessão do Mercado Livre.");
+        toast.success(result.sessionRefreshed ? "Links gerados e sessão renovada automaticamente." : "Links gerados com sua sessão do Mercado Livre.");
         if (whatsapp.instanceToken.trim()) {
           await fetch("/api/affiliate/mercadolivre/session", {
             method: "POST",
@@ -1449,7 +1453,7 @@ export default function Dashboard() {
                       <span className="flex items-center justify-between gap-3"><span>Cookies da sessão</span><button type="button" onClick={() => setMlCookiesVisible((value) => !value)} className="flex items-center gap-1.5 text-xs font-semibold text-[#62ef8b] hover:underline">{mlCookiesVisible ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}{mlCookiesVisible ? "Ocultar" : "Mostrar"}</button></span>
                       <Textarea value={mlSessionCookies} onChange={(event) => { setMlSessionCookies(event.target.value); setMlTestResult(null); }} rows={4} spellCheck={false} placeholder={'Cole aqui o JSON exportado: [{ "domain": "...", "name": "...", "value": "..." }]'} className={`min-h-28 max-h-40 resize-y rounded-xl border-[#34423a] bg-[#080c09] font-mono text-xs leading-5 ${mlCookiesVisible ? "text-white" : "text-transparent caret-white selection:bg-[#245f36]"}`} />
                     </label>
-                    <div className="flex gap-2 rounded-xl border border-[#244c31] bg-[#0d1d12] p-3 text-sm leading-6 text-[#a7cbb2]"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-[#52e579]" /><p>Ao salvar, os cookies ficam criptografados no servidor e passam a ser usados automaticamente nas ofertas dos grupos.</p></div>
+                    <div className="flex gap-2 rounded-xl border border-[#244c31] bg-[#0d1d12] p-3 text-sm leading-6 text-[#a7cbb2]"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-[#52e579]" /><p>Os cookies ficam criptografados no servidor. Quando o Mercado Livre devolver cookies renovados durante uma conversão, o painel os atualiza e salva automaticamente. Se a sessão for encerrada pelo Mercado Livre, será necessário exportar uma nova sessão.</p></div>
                     <div className="flex flex-col gap-2 sm:flex-row">
                       <Button onClick={() => void saveAffiliate()} disabled={saving} variant="outline" className="h-11 rounded-xl border-[#2b3830] bg-[#111813] text-white hover:bg-[#19231c]">{saving ? <LoaderCircle className="animate-spin" /> : <BadgeCheck />} Salvar credenciais</Button>
                       {mlSessionCookies && <Button onClick={() => { setMlSessionCookies(""); setMlTestResult(null); }} variant="ghost" className="h-11 rounded-xl text-[#8b2e1b]">Limpar sessão</Button>}

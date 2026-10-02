@@ -3,7 +3,7 @@ import { getAmazonProductVisual } from "@/lib/amazon-product";
 import { extractUrls, resolveProductUrl } from "@/lib/link-resolver";
 import { generateMercadoLivreLinks } from "@/lib/mercadolivre-affiliate";
 import { getMercadoLivreProductVisual } from "@/lib/mercadolivre-product";
-import { readIntegrationSecret } from "@/lib/integration-secret";
+import { readIntegrationSecret, saveIntegrationSecret } from "@/lib/integration-secret";
 
 export type ProductStatus = "found" | "converted" | "waiting_credentials" | "unsupported" | "error" | "sent";
 
@@ -116,7 +116,7 @@ export async function processProductInput(input: {
   const settings = await getAffiliateSettings();
   const runtime = env as unknown as { MERCADOLIVRE_SESSION_COOKIES?: string };
   const storedCookies = input.cookies?.trim() ? null : await readIntegrationSecret("mercadolivre_session_cookies");
-  const cookies = input.cookies?.trim() || storedCookies || runtime.MERCADOLIVRE_SESSION_COOKIES;
+  let cookies = input.cookies?.trim() || storedCookies || runtime.MERCADOLIVRE_SESSION_COOKIES;
   const saved: SavedProduct[] = [];
 
   for (const sourceUrl of urls) {
@@ -152,6 +152,10 @@ export async function processProductInput(input: {
         errorMessage = "Informe os cookies da sessão do Mercado Livre para gerar o link.";
       } else {
         const generated = await generateMercadoLivreLinks([resolved.resolvedUrl], settings.mercadoLivreLabel, cookies);
+        if (generated.refreshedCookies) {
+          cookies = generated.refreshedCookies;
+          await saveIntegrationSecret("mercadolivre_session_cookies", generated.refreshedCookies);
+        }
         if (generated.ok && generated.results[0]) {
           affiliateUrl = generated.results[0].short_url || generated.results[0].long_url || null;
           status = affiliateUrl ? "converted" : "error";

@@ -1,7 +1,18 @@
+import { env } from "cloudflare:workers";
 import { NextResponse } from "next/server";
 import { generateMercadoLivreLinks } from "@/lib/mercadolivre-affiliate";
+import { saveIntegrationSecret } from "@/lib/integration-secret";
 
 const allowedHosts = new Set(["www.mercadolivre.com.br", "produto.mercadolivre.com.br", "mercadolivre.com.br"]);
+
+function authorized(request: Request) {
+  const supplied = request.headers.get("x-promozap-admin-token") || "";
+  const expected = (env as unknown as { UAZAPI_INSTANCE_TOKEN?: string }).UAZAPI_INSTANCE_TOKEN || "";
+  if (!supplied || supplied.length !== expected.length) return false;
+  let difference = 0;
+  for (let index = 0; index < supplied.length; index += 1) difference |= supplied.charCodeAt(index) ^ expected.charCodeAt(index);
+  return difference === 0;
+}
 
 function validProductUrl(value: string) {
   try {
@@ -27,9 +38,13 @@ export async function POST(request: Request) {
   }
 
   const result = await generateMercadoLivreLinks(urls, tag, body?.cookies);
-  if (!result.ok) return NextResponse.json(result);
+  const { refreshedCookies, ...publicResult } = result;
+  const sessionRefreshed = Boolean(refreshedCookies) && authorized(request);
+  if (refreshedCookies && sessionRefreshed) await saveIntegrationSecret("mercadolivre_session_cookies", refreshedCookies);
+  if (!result.ok) return NextResponse.json({ ...publicResult, sessionRefreshed });
   return NextResponse.json({
-    ...result,
+    ...publicResult,
+    sessionRefreshed,
     message: `${result.results.length} link(s) gerado(s) com a tag ${tag}.`,
     results: result.results.map((item) => ({
       originUrl: item.origin_url || "",
