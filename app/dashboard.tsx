@@ -1049,7 +1049,7 @@ export default function Dashboard() {
     products: ["Produtos encontrados", "Acompanhe cada link identificado, convertido e enviado."],
     catalog: ["Dados dos produtos", "Veja tudo o que foi extraído das ofertas enviadas da Amazon e do Mercado Livre."],
     discovery: ["Consultar produtos", "Pesquise recomendações, preços e filtros nos catálogos oficiais."],
-    ranking: ["Ranking Mercado Livre", "Analise uma listagem completa e encontre automaticamente as ofertas mais atrativas."],
+    ranking: ["Ranking Mercado Livre", "Analise produtos do catálogo oficial e compare automaticamente as ofertas vencedoras."],
     affiliates: ["Afiliados", "Defina como os links encontrados serão convertidos."],
     amazon: ["Gerador Amazon", "Cole links longos ou encurtados e gere versões limpas com seu Tracking ID."],
     mercadolivre: ["Gerador Mercado Livre", "Gere links com sua tag e sua sessão de afiliado."],
@@ -1441,15 +1441,15 @@ export default function Dashboard() {
               <div className="space-y-5">
                 <Card className="overflow-hidden border-[#4a4615] bg-[#0b100d] shadow-none">
                   <CardHeader className="border-b border-[#34351c] bg-[linear-gradient(110deg,rgba(255,230,0,.12),transparent_62%)]">
-                    <div className="flex items-start gap-3"><div className="grid size-11 shrink-0 place-items-center rounded-xl bg-[#ffe600] text-[#231f00]"><Trophy className="size-5" /></div><div><CardTitle className="text-xl">Descobrir as melhores ofertas da página</CardTitle><CardDescription className="mt-1">Cole uma URL de listagem. O painel consulta a API oficial, percorre as páginas e cria um ranking próprio.</CardDescription></div></div>
+                    <div className="flex items-start gap-3"><div className="grid size-11 shrink-0 place-items-center rounded-xl bg-[#ffe600] text-[#231f00]"><Trophy className="size-5" /></div><div><CardTitle className="text-xl">Descobrir ofertas do catálogo</CardTitle><CardDescription className="mt-1">Cole uma URL de listagem. O painel entende a busca, consulta o catálogo oficial e compara a oferta vencedora de cada produto.</CardDescription></div></div>
                   </CardHeader>
                   <CardContent className="space-y-4 pt-5">
                     <label className="block space-y-2 text-sm font-semibold">URL da listagem do Mercado Livre<Input value={rankingUrl} onChange={(event) => setRankingUrl(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void analyzeMercadoLivreListing(); }} placeholder="https://lista.mercadolivre.com.br/..." className="h-12 border-[#474831] bg-[#080c09]" /></label>
                     <div className="grid gap-3 sm:grid-cols-[220px_minmax(0,1fr)] sm:items-end">
-                      <label className="space-y-2 text-sm font-semibold">Limite da análise<NativeSelect value={rankingMaxPages} onChange={(event) => setRankingMaxPages(event.target.value)}><NativeSelectOption value="3">Até 150 produtos</NativeSelectOption><NativeSelectOption value="5">Até 250 produtos</NativeSelectOption><NativeSelectOption value="10">Até 500 produtos</NativeSelectOption><NativeSelectOption value="20">Até 1.000 produtos</NativeSelectOption></NativeSelect></label>
+                      <label className="space-y-2 text-sm font-semibold">Limite da análise<NativeSelect value={rankingMaxPages} onChange={(event) => setRankingMaxPages(event.target.value)}><NativeSelectOption value="1">Até 10 produtos</NativeSelectOption><NativeSelectOption value="2">Até 20 produtos</NativeSelectOption><NativeSelectOption value="3">Até 30 produtos</NativeSelectOption><NativeSelectOption value="5">Até 50 produtos</NativeSelectOption></NativeSelect></label>
                       <Button onClick={() => void analyzeMercadoLivreListing()} disabled={rankingLoading} className="h-12 rounded-xl bg-[#ffe600] font-extrabold text-[#231f00] hover:bg-[#fff05a]">{rankingLoading ? <LoaderCircle className="animate-spin" /> : <Trophy />} {rankingLoading ? "Percorrendo as páginas..." : "Analisar e criar ranking"}</Button>
                     </div>
-                    <p className="text-xs leading-5 text-[#94a69b]">A URL é usada para descobrir a busca e a categoria. O fragmento depois de <code>#</code> não altera a página consultada. O ranking é uma heurística do Promozap, não uma classificação oficial do Mercado Livre.</p>
+                    <p className="text-xs leading-5 text-[#94a69b]">A URL é usada para descobrir a busca. O fragmento depois de <code>#</code> não altera a consulta. Como a busca global antiga foi desativada pelo Mercado Livre, o ranking usa produtos do catálogo e a oferta vencedora (buy box). A nota é uma heurística do Promozap.</p>
                     {rankingError && <div className="rounded-xl border border-[#784235] bg-[#21110e] p-3 text-sm leading-6 text-[#ffb0a7]">{rankingError}</div>}
                   </CardContent>
                 </Card>

@@ -208,34 +208,43 @@ export async function POST(request: Request) {
     }
     const maxPages = Math.max(1, Math.min(20, Math.floor(Number(body.maxPages) || 5)));
     const token = await getMercadoLivreAccessToken();
-    const headers: HeadersInit = { Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+    if (!token) return NextResponse.json({ error: "Conecte o aplicativo do Mercado Livre em Consultar produtos." }, { status: 412 });
+    const headers: HeadersInit = { Accept: "application/json", Authorization: `Bearer ${token}` };
     const query = deriveQuery(sourceUrl);
     const explicitCategory = categoryFromUrl(sourceUrl);
     const discovery = explicitCategory ? { categoryId: explicitCategory, categoryName: null, domainId: null } : await discoverCategory(query, headers);
-    const searchUrl = (offset: number) => {
-      const endpoint = new URL("https://api.mercadolibre.com/sites/MLB/search");
-      endpoint.searchParams.set("q", query);
-      endpoint.searchParams.set("limit", "50");
-      endpoint.searchParams.set("offset", String(offset));
-      if (discovery.categoryId) endpoint.searchParams.set("category", discovery.categoryId);
-      return endpoint.href;
-    };
-    const first = await mlJson(searchUrl(0), headers, 18_000) as MlRow;
-    const total = finiteNumber(first.paging?.total) || 0;
-    const apiLimit = finiteNumber(first.paging?.limit) || 50;
-    const pagesToFetch = Math.min(maxPages, Math.max(1, Math.ceil(total / apiLimit)));
-    const pageIndexes = Array.from({ length: Math.max(0, pagesToFetch - 1) }, (_, index) => index + 1);
-    const pages: MlRow[] = [first];
-    for (let index = 0; index < pageIndexes.length; index += 3) {
-      const chunk = pageIndexes.slice(index, index + 3);
-      pages.push(...await Promise.all(chunk.map((page) => mlJson(searchUrl(page * apiLimit), headers, 18_000) as Promise<MlRow>)));
+    const endpoint = new URL("https://api.mercadolibre.com/products/search");
+    endpoint.searchParams.set("status", "active");
+    endpoint.searchParams.set("site_id", "MLB");
+    endpoint.searchParams.set("q", query);
+    endpoint.searchParams.set("limit", String(Math.min(50, Math.max(10, maxPages * 10))));
+    if (discovery.domainId) endpoint.searchParams.set("domain_id", discovery.domainId);
+    const search = await mlJson(endpoint.href, headers, 18_000) as MlRow;
+    const summaries = Array.isArray(search.results) ? search.results as MlRow[] : [];
+    const details: MlRow[] = [];
+    for (let index = 0; index < summaries.length; index += 6) {
+      const chunk = summaries.slice(index, index + 6);
+      details.push(...await Promise.all(chunk.map(async (summary) => {
+        try { return await mlJson(`https://api.mercadolibre.com/products/${encodeURIComponent(String(summary.id))}`, headers, 18_000) as MlRow; }
+        catch { return summary; }
+      })));
     }
-    const seen = new Map<string, MlRow>();
-    for (const page of pages) for (const row of Array.isArray(page.results) ? page.results : []) {
-      const id = String(row.id || row.catalog_product_id || "");
-      if (id && !seen.has(id)) seen.set(id, row);
-    }
-    const rows = [...seen.values()];
+    const rows = details.map((product) => {
+      const winner = product.buy_box_winner || {};
+      return {
+        ...winner,
+        id: winner.item_id || product.id,
+        catalog_product_id: product.id,
+        title: product.name || winner.title,
+        permalink: product.permalink || winner.permalink || `https://www.mercadolivre.com.br/p/${product.id}`,
+        thumbnail: product.pictures?.[0]?.url || product.pictures?.[0]?.secure_url || winner.thumbnail,
+        seller: winner.seller || { id: winner.seller_id },
+        category_id: winner.category_id || discovery.categoryId,
+        attributes: product.attributes || [],
+        raw_product: product,
+      };
+    });
+    const total = finiteNumber(search.paging?.total) || rows.length;
     const prices = rows.map((row) => finiteNumber(row.price)).filter((value): value is number => value != null && value > 0).sort((a, b) => a - b);
     const medianPrice = prices.length ? prices[Math.floor(prices.length / 2)] : 0;
     const highlights = await getHighlights(discovery.categoryId, headers);
@@ -247,14 +256,14 @@ export async function POST(request: Request) {
       category: discovery,
       total,
       scanned: products.length,
-      pagesScanned: pages.length,
+      pagesScanned: 1,
       pageLimit: maxPages,
-      truncated: products.length < total,
+      truncated: true,
       medianPrice,
       averageDiscount,
       products,
       scoring: "Heurística Promozap: vendas/mais vendidos, desconto, preço versus mediana, frete, Full, reputação, parcelamento e loja oficial.",
-      warning: products.length < total ? `A API informou ${total.toLocaleString("pt-BR")} resultados; esta análise leu ${products.length.toLocaleString("pt-BR")} conforme o limite escolhido.` : null,
+      warning: `O Mercado Livre desativou a busca global antiga. Este ranking usa ${products.length.toLocaleString("pt-BR")} produtos do catálogo oficial e a oferta vencedora (buy box) de cada um; não representa todos os anúncios da página colada.`,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Não foi possível analisar a listagem.";
