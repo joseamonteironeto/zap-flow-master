@@ -2,6 +2,13 @@ import { getMercadoLivreAccessToken, refreshMercadoLivreAccessToken } from "@/li
 
 type Row = Record<string, any>;
 
+class MercadoLivreApiError extends Error {
+  constructor(message: string, readonly status: number, readonly code: string | null = null) {
+    super(message);
+    this.name = "MercadoLivreApiError";
+  }
+}
+
 export type MercadoLivreOffer = {
   id: string;
   itemId: string | null;
@@ -68,13 +75,46 @@ async function apiJson(path: string, token: string, timeout = 15_000, allowRefre
     throw new Error("A conexão com o Mercado Livre expirou. Reconecte o aplicativo no painel.");
   }
   if (!response.ok) {
-    throw new Error(message || `Mercado Livre respondeu HTTP ${response.status}.`);
+    throw new MercadoLivreApiError(
+      message || `Mercado Livre respondeu HTTP ${response.status}.`,
+      response.status,
+      typeof data?.code === "string" ? data.code : null,
+    );
   }
   return data as Row;
 }
 
 async function optionalJson(path: string, token: string) {
   try { return await apiJson(path, token); } catch { return null; }
+}
+
+/**
+ * O endpoint unitario pode ser bloqueado pelo PolicyAgent para alguns apps,
+ * enquanto o multi-get oficial continua autorizado. Mantemos os dois caminhos
+ * para nao transformar um erro de permissao em um falso "produto sem preco".
+ */
+async function fetchItem(itemId: string, token: string) {
+  let directError: unknown = null;
+  try {
+    return await apiJson(`/items/${encodeURIComponent(itemId)}`, token);
+  } catch (error) {
+    directError = error;
+  }
+
+  try {
+    const rows = await apiJson(`/items?ids=${encodeURIComponent(itemId)}`, token);
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (row?.code >= 200 && row?.code < 300 && row.body && typeof row.body === "object") return row.body as Row;
+    const detail = row?.body?.message || row?.message;
+    throw new MercadoLivreApiError(
+      detail || `A oferta ${itemId} nao foi devolvida pela consulta em lote.`,
+      finite(row?.code) || 404,
+      typeof row?.body?.code === "string" ? row.body.code : null,
+    );
+  } catch (batchError) {
+    if (directError instanceof MercadoLivreApiError && directError.status !== 404) throw directError;
+    throw batchError;
+  }
 }
 
 function marketplacePrice(prices: Row | null) {
@@ -190,7 +230,7 @@ function normalize(input: {
 }
 
 async function enrichItem(itemId: string, token: string, product?: Row | null, source: MercadoLivreOffer["source"] = "item", bestSellerPosition?: number | null) {
-  const item = await apiJson(`/items/${encodeURIComponent(itemId)}`, token);
+  const item = await fetchItem(itemId, token);
   const [sale, prices, promotionsResponse, seller, category] = await Promise.all([
     optionalJson(`/items/${encodeURIComponent(itemId)}/sale_price?context=channel_marketplace`, token),
     optionalJson(`/items/${encodeURIComponent(itemId)}/prices`, token),
@@ -269,7 +309,13 @@ export async function getMercadoLivreOffer(input: string) {
   if (parsed.kind === "product") return enrichProduct(parsed.id, token);
   if (parsed.kind === "unknown-id") {
     try { return await enrichItem(parsed.id, token); }
-    catch { return enrichProduct(parsed.id, token); }
+    catch (error) {
+      // IDs de catalogo e de anuncio compartilham o prefixo MLB. So tentamos
+      // catalogo quando o recurso de item realmente nao existe; erros de
+      // permissao precisam chegar ate a interface para orientar a configuracao.
+      if (error instanceof MercadoLivreApiError && error.status !== 404) throw error;
+      return enrichProduct(parsed.id, token);
+    }
   }
   throw new Error("Informe um link ou ID do Mercado Livre.");
 }
