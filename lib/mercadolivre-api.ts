@@ -365,9 +365,11 @@ export async function searchMercadoLivreOffers(queryInput: string, limit = 20) {
     priced = [...priced, ...bestSellers.filter((item) => item.price != null)];
   }
   let marketplaceItems: MercadoLivreOffer[] = [];
+  let marketplaceWarning: string | null = null;
   if (priced.length < Math.min(8, limit)) {
     const marketplace = await scrapeMercadoLivreListing(mercadoLivreListingUrl(query), 1, limit).catch(() => null);
     marketplaceItems = marketplace?.items.filter((item) => item.price != null) || [];
+    marketplaceWarning = marketplace?.warning || null;
   }
   const seen = new Map<string, MercadoLivreOffer>();
   for (const item of [...marketplaceItems, ...priced, ...catalogOffers]) if (!seen.has(item.id)) seen.set(item.id, item);
@@ -378,5 +380,6 @@ export async function searchMercadoLivreOffers(queryInput: string, limit = 20) {
     items,
     total: finite(search.paging?.total) || items.length,
     mode: marketplaceItems.length ? "marketplace" as const : priced.length ? "offers" as const : "catalog" as const,
+    marketplaceWarning,
   };
 }

@@ -205,6 +205,7 @@ type CatalogSearchResponse = {
   sorts?: Array<string | { id: string; name: string }>;
   error?: string;
   credentialsRequired?: boolean;
+  warning?: string | null;
 };
 
 type RankedProduct = {
@@ -441,6 +442,7 @@ export default function Dashboard() {
   const [catalogTotal, setCatalogTotal] = useState(0);
   const [catalogSearching, setCatalogSearching] = useState(false);
   const [catalogError, setCatalogError] = useState("");
+  const [catalogWarning, setCatalogWarning] = useState("");
   const [selectedCatalogItem, setSelectedCatalogItem] = useState<CatalogItem | null>(null);
   const [offerMessage, setOfferMessage] = useState("");
   const [offerDestination, setOfferDestination] = useState("");
@@ -897,6 +899,7 @@ export default function Dashboard() {
     if (catalogSearchStore === "amazon" && !catalogQuery.trim()) return toast.error("Informe o que deseja buscar na Amazon.");
     setCatalogSearching(true);
     setCatalogError("");
+      setCatalogWarning("");
     try {
       const params = new URLSearchParams({ store: catalogSearchStore });
       if (catalogQuery.trim()) params.set("q", catalogQuery.trim());
@@ -910,10 +913,12 @@ export default function Dashboard() {
       setCatalogFilters(result.filters || null);
       setCatalogSorts(result.sorts || []);
       setCatalogTotal(result.total || 0);
+      setCatalogWarning(result.warning || "");
       if (!catalogQuery.trim() && result.query) setCatalogQuery(result.query);
     } catch (caught) {
       setCatalogItems([]);
       setCatalogFilters(null);
+      setCatalogWarning("");
       setCatalogError(caught instanceof Error ? caught.message : "Não foi possível consultar os produtos.");
     } finally {
       setCatalogSearching(false);
@@ -1496,6 +1501,7 @@ export default function Dashboard() {
                       <div className="grid gap-3 sm:grid-cols-2"><label className="space-y-2 text-sm font-semibold">Preço mínimo<Input type="number" min="0" value={catalogMinPrice} onChange={(event) => setCatalogMinPrice(event.target.value)} placeholder="R$ 0" className="h-11 border-[#34423a] bg-[#080c09]" /></label><label className="space-y-2 text-sm font-semibold">Preço máximo<Input type="number" min="0" value={catalogMaxPrice} onChange={(event) => setCatalogMaxPrice(event.target.value)} placeholder="Sem limite" className="h-11 border-[#34423a] bg-[#080c09]" /></label></div>
                       <Button onClick={() => void searchCatalog()} disabled={catalogSearching} className="h-12 w-full rounded-xl bg-[#24c75a] font-bold text-[#04140a] hover:bg-[#46df75]">{catalogSearching ? <LoaderCircle className="animate-spin" /> : <Search />} {catalogSearching ? "Cruzando dados oficiais..." : catalogQuery.trim() ? "Buscar ofertas" : "Ver recomendações"}</Button>
                       {catalogError && <div className="rounded-xl border border-[#784235] bg-[#21110e] p-3 text-sm leading-6 text-[#ffb0a7]">{catalogError}</div>}
+                      {catalogWarning && <div className="flex items-start gap-3 rounded-xl border border-[#66532e] bg-[#241d0c] p-3 text-sm leading-6 text-[#e6c47d]"><CircleAlert className="mt-1 size-4 shrink-0" /><span>{catalogWarning} Abra Afiliados → Mercado Livre, cole uma exportação recente dos cookies e salve; a próxima busca tentará novamente automaticamente.</span></div>}
                     </CardContent>
                   </Card>
 
