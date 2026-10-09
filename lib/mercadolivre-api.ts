@@ -228,6 +228,19 @@ async function enrichProduct(productId: string, token: string, source: MercadoLi
   return normalize({ product, source, bestSellerPosition });
 }
 
+async function enrichUserProduct(userProductId: string, token: string, bestSellerPosition?: number | null) {
+  const userProduct = await apiJson(`/user-products/${encodeURIComponent(userProductId)}`, token);
+  const sellerId = userProduct.user_id || userProduct.seller_id;
+  if (!sellerId) return normalize({ product: userProduct, source: "best_seller", bestSellerPosition });
+  const search = await apiJson(`/users/${encodeURIComponent(String(sellerId))}/items/search?user_product_id=${encodeURIComponent(userProductId)}&status=active&limit=10`, token);
+  const itemIds = Array.isArray(search.results) ? search.results.filter((id: unknown): id is string => typeof id === "string") : [];
+  const offers = await inChunks(itemIds.slice(0, 10), 4, async (itemId) => {
+    try { return await enrichItem(itemId, token, userProduct, "best_seller", bestSellerPosition); } catch { return null; }
+  });
+  const priced = offers.filter((offer) => offer.price != null).sort((a, b) => (a.price || Number.POSITIVE_INFINITY) - (b.price || Number.POSITIVE_INFINITY));
+  return priced[0] || normalize({ product: userProduct, source: "best_seller", bestSellerPosition });
+}
+
 function parseInput(value: string) {
   const text = value.trim();
   const itemUrl = text.match(/produto\.mercadolivre\.com\.br\/MLB-?(\d{7,})/i);
@@ -283,6 +296,7 @@ export async function searchMercadoLivreOffers(queryInput: string, limit = 20) {
     const rows = Array.isArray(highlights?.content) ? highlights.content as Row[] : [];
     const bestSellers = await inChunks(rows.slice(0, limit), 4, async (row) => {
       try {
+        if (row.type === "USER_PRODUCT" || String(row.id).startsWith("MLBU")) return await enrichUserProduct(String(row.id), token, finite(row.position));
         if (row.type === "ITEM") return await enrichItem(String(row.id), token, null, "best_seller", finite(row.position));
         if (row.type === "PRODUCT") return await enrichProduct(String(row.id), token, "best_seller", finite(row.position));
         return null;
