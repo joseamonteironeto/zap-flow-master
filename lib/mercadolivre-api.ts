@@ -1,4 +1,4 @@
-import { getMercadoLivreAccessToken } from "@/lib/mercadolivre-oauth";
+import { getMercadoLivreAccessToken, refreshMercadoLivreAccessToken } from "@/lib/mercadolivre-oauth";
 
 type Row = Record<string, any>;
 
@@ -48,13 +48,18 @@ function safeImage(value: unknown) {
   return /^https:\/\//i.test(url) ? url : null;
 }
 
-async function apiJson(path: string, token: string, timeout = 15_000) {
+async function apiJson(path: string, token: string, timeout = 15_000, allowRefresh = true) {
   const response = await fetch(`https://api.mercadolibre.com${path}`, {
     headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
     cache: "no-store",
     signal: AbortSignal.timeout(timeout),
   });
   const data = await response.json().catch(() => ({}));
+  if (response.status === 401 && allowRefresh) {
+    const renewed = await refreshMercadoLivreAccessToken();
+    if (renewed) return apiJson(path, renewed, timeout, false);
+    throw new Error("A conexão com o Mercado Livre expirou. Reconecte o aplicativo no painel.");
+  }
   if (!response.ok) {
     const message = data && typeof data === "object" && "message" in data ? String((data as Row).message) : "";
     throw new Error(message || `Mercado Livre respondeu HTTP ${response.status}.`);
