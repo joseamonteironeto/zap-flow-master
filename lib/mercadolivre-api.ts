@@ -33,6 +33,12 @@ export type MercadoLivreOffer = {
   tags: string[];
   bestSellerPosition: number | null;
   promotionType: string | null;
+  promotionId: string | null;
+  priceId: string | null;
+  priceSource: "sale_price" | "prices" | "buy_box" | "item" | "catalog";
+  priceUpdatedAt: string | null;
+  promotions: Row[];
+  coupon: Row | null;
   source: "item" | "buy_box" | "best_seller" | "catalog";
   raw: Row;
 };
@@ -71,18 +77,50 @@ async function optionalJson(path: string, token: string) {
   try { return await apiJson(path, token); } catch { return null; }
 }
 
-function saleAmount(sale: Row | null, item: Row, winner: Row) {
-  return finite(sale?.amount ?? sale?.price ?? sale?.sale_price ?? item.price ?? winner.price);
+function marketplacePrice(prices: Row | null) {
+  const rows = Array.isArray(prices?.prices) ? prices.prices as Row[] : [];
+  const now = Date.now();
+  const applies = (row: Row) => {
+    const contexts = Array.isArray(row.conditions?.context_restrictions) ? row.conditions.context_restrictions : [];
+    const starts = row.conditions?.start_time ? Date.parse(String(row.conditions.start_time)) : 0;
+    const ends = row.conditions?.end_time ? Date.parse(String(row.conditions.end_time)) : Number.POSITIVE_INFINITY;
+    return (!contexts.length || contexts.includes("channel_marketplace")) && (!starts || starts <= now) && (!ends || ends >= now);
+  };
+  const active = rows.filter((row) => finite(row.amount) != null && applies(row));
+  return active.find((row) => row.type === "promotion") || active.find((row) => row.type === "standard") || null;
 }
 
-function regularAmount(sale: Row | null, item: Row, winner: Row) {
-  return finite(sale?.regular_amount ?? sale?.original_price ?? item.original_price ?? winner.original_price ?? item.base_price);
+function saleAmount(sale: Row | null, selectedPrice: Row | null, item: Row, winner: Row) {
+  return finite(sale?.amount ?? sale?.price ?? sale?.sale_price ?? selectedPrice?.amount ?? winner.price ?? item.price);
+}
+
+function regularAmount(sale: Row | null, selectedPrice: Row | null, item: Row, winner: Row) {
+  return finite(sale?.regular_amount ?? sale?.original_price ?? selectedPrice?.regular_amount ?? winner.original_price ?? item.original_price ?? item.base_price);
+}
+
+function couponFromPromotions(promotions: Row[]) {
+  const coupon = promotions.find((row) => String(row.type || row.promotion_type).toUpperCase() === "SELLER_COUPON_CAMPAIGN" && ["started", "active"].includes(String(row.status).toLowerCase()));
+  if (!coupon) return null;
+  return {
+    id: coupon.id || coupon.promotion_id || null,
+    code: coupon.coupon_code || null,
+    subType: coupon.sub_type || null,
+    fixedAmount: finite(coupon.fixed_amount),
+    fixedPercentage: finite(coupon.fixed_percentage),
+    minPurchaseAmount: finite(coupon.min_purchase_amount),
+    maxPurchaseAmount: finite(coupon.max_purchase_amount),
+    startDate: coupon.start_date || null,
+    finishDate: coupon.finish_date || coupon.end_date || null,
+    status: coupon.status || null,
+  };
 }
 
 function normalize(input: {
   product?: Row | null;
   item?: Row | null;
   sale?: Row | null;
+  prices?: Row | null;
+  promotions?: Row[] | null;
   seller?: Row | null;
   category?: Row | null;
   source: MercadoLivreOffer["source"];
@@ -92,8 +130,10 @@ function normalize(input: {
   const item = input.item || {};
   const winner = product.buy_box_winner || {};
   const sale = input.sale || null;
-  const price = saleAmount(sale, item, winner);
-  const originalPrice = regularAmount(sale, item, winner);
+  const selectedPrice = marketplacePrice(input.prices || null);
+  const promotions = Array.isArray(input.promotions) ? input.promotions : [];
+  const price = saleAmount(sale, selectedPrice, item, winner);
+  const originalPrice = regularAmount(sale, selectedPrice, item, winner);
   const discountPercentage = price != null && originalPrice != null && originalPrice > price
     ? Math.round((1 - price / originalPrice) * 100)
     : 0;
@@ -137,26 +177,54 @@ function normalize(input: {
     saleTerms: Array.isArray(item.sale_terms) ? item.sale_terms.slice(0, 30) : [],
     tags: Array.isArray(item.tags) ? item.tags.filter((tag: unknown): tag is string => typeof tag === "string") : [],
     bestSellerPosition: input.bestSellerPosition || null,
-    promotionType: saleMetadata.promotion_type || sale?.promotion_type || null,
+    promotionType: saleMetadata.promotion_type || sale?.promotion_type || selectedPrice?.type || null,
+    promotionId: saleMetadata.promotion_id || sale?.promotion_id || promotions.find((row) => ["started", "active"].includes(String(row.status).toLowerCase()))?.id || null,
+    priceId: sale?.price_id != null ? String(sale.price_id) : selectedPrice?.id != null ? String(selectedPrice.id) : null,
+    priceSource: sale && finite(sale.amount) != null ? "sale_price" : selectedPrice ? "prices" : finite(winner.price) != null ? "buy_box" : finite(item.price) != null ? "item" : "catalog",
+    priceUpdatedAt: sale?.reference_date || selectedPrice?.last_updated || null,
+    promotions,
+    coupon: couponFromPromotions(promotions),
     source: input.source,
-    raw: { product: input.product || null, item: input.item || null, salePrice: input.sale || null, seller: input.seller || null, category: input.category || null },
+    raw: { product: input.product || null, item: input.item || null, salePrice: input.sale || null, prices: input.prices || null, promotions, seller: input.seller || null, category: input.category || null },
   };
 }
 
 async function enrichItem(itemId: string, token: string, product?: Row | null, source: MercadoLivreOffer["source"] = "item", bestSellerPosition?: number | null) {
   const item = await apiJson(`/items/${encodeURIComponent(itemId)}`, token);
-  const [sale, seller, category] = await Promise.all([
+  const [sale, prices, promotionsResponse, seller, category] = await Promise.all([
     optionalJson(`/items/${encodeURIComponent(itemId)}/sale_price?context=channel_marketplace`, token),
+    optionalJson(`/items/${encodeURIComponent(itemId)}/prices`, token),
+    optionalJson(`/seller-promotions/items/${encodeURIComponent(itemId)}?app_version=v2`, token),
     item.seller_id ? optionalJson(`/users/${encodeURIComponent(String(item.seller_id))}`, token) : null,
     item.category_id ? optionalJson(`/categories/${encodeURIComponent(String(item.category_id))}`, token) : null,
   ]);
-  return normalize({ product, item, sale, seller, category, source, bestSellerPosition });
+  const promotions = Array.isArray(promotionsResponse) ? promotionsResponse as Row[] : [];
+  return normalize({ product, item, sale, prices, promotions, seller, category, source, bestSellerPosition });
 }
 
-async function enrichProduct(productId: string, token: string, source: MercadoLivreOffer["source"] = "catalog", bestSellerPosition?: number | null) {
+async function enrichProduct(productId: string, token: string, source: MercadoLivreOffer["source"] = "catalog", bestSellerPosition?: number | null, depth = 0): Promise<MercadoLivreOffer> {
   const product = await apiJson(`/products/${encodeURIComponent(productId)}`, token);
   const winnerId = typeof product.buy_box_winner?.item_id === "string" ? product.buy_box_winner.item_id : null;
-  if (winnerId) return enrichItem(winnerId, token, product, source === "best_seller" ? "best_seller" : "buy_box", bestSellerPosition);
+  if (winnerId) {
+    try { return await enrichItem(winnerId, token, product, source === "best_seller" ? "best_seller" : "buy_box", bestSellerPosition); }
+    catch {
+      const winner = product.buy_box_winner || {};
+      const fallbackItem = { ...winner, id: winnerId, seller_id: winner.seller_id, pictures: product.pictures, attributes: product.attributes, catalog_product_id: product.id };
+      const [sale, prices] = await Promise.all([
+        optionalJson(`/items/${encodeURIComponent(winnerId)}/sale_price?context=channel_marketplace`, token),
+        optionalJson(`/items/${encodeURIComponent(winnerId)}/prices`, token),
+      ]);
+      return normalize({ product, item: fallbackItem, sale, prices, source: source === "best_seller" ? "best_seller" : "buy_box", bestSellerPosition });
+    }
+  }
+  const children = Array.isArray(product.children_ids) ? product.children_ids.filter((id: unknown): id is string => typeof id === "string").slice(0, 16) : [];
+  if (depth < 2 && children.length) {
+    const offers = await inChunks(children, 4, async (childId) => {
+      try { return await enrichProduct(childId, token, source, bestSellerPosition, depth + 1); } catch { return null; }
+    });
+    const priced = offers.filter((offer) => offer.price != null).sort((a, b) => (a.price || Number.POSITIVE_INFINITY) - (b.price || Number.POSITIVE_INFINITY));
+    if (priced[0]) return priced[0];
+  }
   return normalize({ product, source, bestSellerPosition });
 }
 
