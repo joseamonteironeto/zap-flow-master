@@ -1,95 +1,36 @@
 import { env } from "cloudflare:workers";
 import { NextResponse } from "next/server";
 import { searchAmazonProducts } from "@/lib/amazon-creators";
-import { getMercadoLivreAccessToken } from "@/lib/mercadolivre-oauth";
+import { searchMercadoLivreOffers } from "@/lib/mercadolivre-api";
 
 function numberParam(value: string | null) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
-function mlImage(url: unknown) {
-  return typeof url === "string" ? url.replace(/^http:/, "https:").replace(/-I\.jpg$/i, "-O.jpg") : null;
-}
-
 async function searchMercadoLivre(params: URLSearchParams) {
-  const token = await getMercadoLivreAccessToken();
-  if (!token) throw new Error("Conecte o aplicativo do Mercado Livre nesta aba para liberar a consulta oficial.");
-  const headers: HeadersInit = { Accept: "application/json", Authorization: `Bearer ${token}` };
   let query = params.get("q")?.trim() || "";
   if (!query) {
-    const trendsResponse = await fetch("https://api.mercadolibre.com/trends/MLB?limit=20", { headers, signal: AbortSignal.timeout(10_000) });
+    const trendsResponse = await fetch("https://api.mercadolibre.com/trends/MLB?limit=20", { signal: AbortSignal.timeout(10_000) });
     if (trendsResponse.ok) {
       const trends = await trendsResponse.json() as Array<{ keyword?: string }>;
       query = trends.find((item) => item.keyword)?.keyword || "ofertas";
     } else query = "ofertas";
   }
-  const target = new URL("https://api.mercadolibre.com/products/search");
-  target.searchParams.set("status", "active");
-  target.searchParams.set("site_id", "MLB");
-  target.searchParams.set("q", query);
-  target.searchParams.set("limit", "24");
-  const domainId = params.get("domain_id");
-  if (domainId) target.searchParams.set("domain_id", domainId);
   const minPrice = numberParam(params.get("minPrice"));
   const maxPrice = numberParam(params.get("maxPrice"));
-  const response = await fetch(target, { headers, signal: AbortSignal.timeout(15_000) });
-  const data = await response.json().catch(() => ({})) as Record<string, any>;
-  if (!response.ok) {
-    if (response.status === 401 || response.status === 403) throw new Error("A conexão do Mercado Livre expirou ou não tem permissão para consultar o catálogo. Reconecte a conta.");
-    throw new Error(data.message || `O Mercado Livre recusou a consulta (HTTP ${response.status}).`);
-  }
-  const summaries = Array.isArray(data.results) ? data.results as Record<string, any>[] : [];
-  const details: Record<string, any>[] = [];
-  for (let index = 0; index < summaries.length; index += 6) {
-    const chunk = summaries.slice(index, index + 6);
-    details.push(...await Promise.all(chunk.map(async (summary) => {
-      const detailResponse = await fetch(`https://api.mercadolibre.com/products/${encodeURIComponent(String(summary.id))}`, {
-        headers,
-        cache: "no-store",
-        signal: AbortSignal.timeout(15_000),
-      });
-      if (!detailResponse.ok) return summary;
-      return { ...summary, ...await detailResponse.json() as Record<string, any> };
-    })));
-  }
-  const items = details.map((product) => {
-    const winner = product.buy_box_winner || {};
-    const price = Number(winner.price);
-    const originalPrice = Number(winner.original_price);
-    return {
-      id: product.id,
-      title: product.name || winner.title || "Produto sem título",
-      imageUrl: mlImage(product.pictures?.[0]?.url || product.pictures?.[0]?.secure_url || winner.thumbnail),
-      url: product.permalink || winner.permalink || `https://www.mercadolivre.com.br/p/${product.id}`,
-      price: Number.isFinite(price) ? price : null,
-      originalPrice: Number.isFinite(originalPrice) ? originalPrice : null,
-      currency: winner.currency_id || "BRL",
-      condition: winner.condition || null,
-      availableQuantity: winner.available_quantity ?? null,
-      soldQuantity: winner.sold_quantity ?? null,
-      freeShipping: Boolean(winner.shipping?.free_shipping),
-      seller: winner.seller?.nickname || winner.seller_id || winner.seller?.id || null,
-      categoryId: winner.category_id || product.domain_id || null,
-      officialStore: winner.official_store_name || winner.official_store_id || null,
-      installments: winner.installments || null,
-      attributes: product.attributes || [],
-      domainId: product.domain_id || null,
-      winnerItemId: winner.item_id || null,
-      catalogStatus: product.status || null,
-      raw: product,
-    };
-  }).filter((item) => (!minPrice || (item.price != null && item.price >= minPrice)) && (!maxPrice || (item.price != null && item.price <= maxPrice)));
-  const domains = [...new Map(details.filter((item) => item.domain_id).map((item) => [item.domain_id, item.domain_name || item.domain_id])).entries()];
+  const result = await searchMercadoLivreOffers(query, 20);
+  const items = result.items.filter((item) => (!minPrice || (item.price != null && item.price >= minPrice)) && (!maxPrice || (item.price != null && item.price <= maxPrice)));
   return {
     store: "mercadolivre",
     query,
     items,
-    total: data.paging?.total || items.length,
-    filters: domains.length ? [{ id: "domain_id", name: "Tipo de produto", values: domains.map(([id, name]) => ({ id, name })) }] : [],
-    appliedFilters: domainId ? [{ id: "domain_id", value: domainId }] : [],
-    sorts: [],
-    source: "catalog-products",
+    total: result.total,
+    filters: result.category ? [{ id: "category", name: "Categoria detectada", values: [{ id: result.category.categoryId, name: result.category.categoryName || result.category.domainName }] }] : [],
+    appliedFilters: [],
+    sorts: [{ id: "best_sellers", name: "Mais vendidos e ofertas ativas" }],
+    source: result.mode,
+    category: result.category,
   };
 }
 
