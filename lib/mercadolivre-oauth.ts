@@ -20,13 +20,14 @@ export function mercadoLivreRedirectUri(origin: string) {
 }
 
 export async function mercadoLivreOAuthStatus() {
-  const [clientId, clientSecret, accessToken, refreshToken, expiresAt, userId] = await Promise.all([
+  const [clientId, clientSecret, accessToken, refreshToken, expiresAt, userId, scope] = await Promise.all([
     readIntegrationSecret("mercadolivre_client_id"),
     readIntegrationSecret("mercadolivre_client_secret"),
     readIntegrationSecret("mercadolivre_access_token"),
     readIntegrationSecret("mercadolivre_refresh_token"),
     readIntegrationSecret("mercadolivre_token_expires_at"),
     readIntegrationSecret("mercadolivre_user_id"),
+    readIntegrationSecret("mercadolivre_token_scope"),
   ]);
   let connected = false;
   if (accessToken || refreshToken) {
@@ -45,6 +46,7 @@ export async function mercadoLivreOAuthStatus() {
     connected,
     expiresAt: expiresAt || null,
     userId: userId || null,
+    scope: scope || null,
   };
 }
 
@@ -56,6 +58,7 @@ async function saveTokenPayload(payload: TokenPayload) {
     saveIntegrationSecret("mercadolivre_token_expires_at", expiresAt),
     payload.refresh_token ? saveIntegrationSecret("mercadolivre_refresh_token", payload.refresh_token) : Promise.resolve(),
     payload.user_id != null ? saveIntegrationSecret("mercadolivre_user_id", String(payload.user_id)) : Promise.resolve(),
+    payload.scope ? saveIntegrationSecret("mercadolivre_token_scope", payload.scope) : Promise.resolve(),
   ]);
   return payload.access_token;
 }
@@ -126,6 +129,7 @@ export async function disconnectMercadoLivreOAuth() {
     deleteIntegrationSecret("mercadolivre_refresh_token"),
     deleteIntegrationSecret("mercadolivre_token_expires_at"),
     deleteIntegrationSecret("mercadolivre_user_id"),
+    deleteIntegrationSecret("mercadolivre_token_scope"),
     deleteIntegrationSecret("mercadolivre_oauth_state"),
   ]);
 }
