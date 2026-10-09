@@ -55,13 +55,13 @@ async function apiJson(path: string, token: string, timeout = 15_000, allowRefre
     signal: AbortSignal.timeout(timeout),
   });
   const data = await response.json().catch(() => ({}));
-  if (response.status === 401 && allowRefresh) {
+  const message = data && typeof data === "object" && "message" in data ? String((data as Row).message) : "";
+  if ((response.status === 401 || response.status === 403 || /invalid access token|expired token/i.test(message)) && allowRefresh) {
     const renewed = await refreshMercadoLivreAccessToken();
     if (renewed) return apiJson(path, renewed, timeout, false);
     throw new Error("A conexão com o Mercado Livre expirou. Reconecte o aplicativo no painel.");
   }
   if (!response.ok) {
-    const message = data && typeof data === "object" && "message" in data ? String((data as Row).message) : "";
     throw new Error(message || `Mercado Livre respondeu HTTP ${response.status}.`);
   }
   return data as Row;
