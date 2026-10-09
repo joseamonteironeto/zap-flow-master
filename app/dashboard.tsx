@@ -188,11 +188,11 @@ type CatalogItem = {
   promotionType?: string | null;
   promotionId?: string | null;
   priceId?: string | null;
-  priceSource?: "sale_price" | "prices" | "buy_box" | "item" | "catalog";
+  priceSource?: "sale_price" | "prices" | "buy_box" | "item" | "catalog" | "marketplace_page";
   priceUpdatedAt?: string | null;
   promotions?: Array<Record<string, unknown>>;
   coupon?: Record<string, unknown> | null;
-  source?: "item" | "buy_box" | "best_seller" | "catalog";
+  source?: "item" | "buy_box" | "best_seller" | "catalog" | "web_search";
   raw?: Record<string, unknown>;
 };
 

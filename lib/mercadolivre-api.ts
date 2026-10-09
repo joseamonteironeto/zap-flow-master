@@ -1,4 +1,5 @@
 import { getMercadoLivreAccessToken, refreshMercadoLivreAccessToken } from "@/lib/mercadolivre-oauth";
+import { mercadoLivreListingUrl, scrapeMercadoLivreListing } from "@/lib/mercadolivre-marketplace";
 
 type Row = Record<string, any>;
 
@@ -42,11 +43,11 @@ export type MercadoLivreOffer = {
   promotionType: string | null;
   promotionId: string | null;
   priceId: string | null;
-  priceSource: "sale_price" | "prices" | "buy_box" | "item" | "catalog";
+  priceSource: "sale_price" | "prices" | "buy_box" | "item" | "catalog" | "marketplace_page";
   priceUpdatedAt: string | null;
   promotions: Row[];
   coupon: Row | null;
-  source: "item" | "buy_box" | "best_seller" | "catalog";
+  source: "item" | "buy_box" | "best_seller" | "catalog" | "web_search";
   raw: Row;
 };
 
@@ -305,7 +306,15 @@ export async function getMercadoLivreOffer(input: string) {
   const token = await getMercadoLivreAccessToken();
   if (!token) throw new Error("Conecte novamente o Mercado Livre para consultar preços.");
   const parsed = parseInput(input);
-  if (parsed.kind === "item") return enrichItem(parsed.id, token);
+  if (parsed.kind === "item") {
+    try { return await enrichItem(parsed.id, token); }
+    catch (error) {
+      const fallback = await scrapeMercadoLivreListing(mercadoLivreListingUrl(parsed.id), 1, 10).catch(() => null);
+      const item = fallback?.items.find((offer) => offer.itemId === parsed.id);
+      if (item) return item;
+      throw error;
+    }
+  }
   if (parsed.kind === "product") return enrichProduct(parsed.id, token);
   if (parsed.kind === "unknown-id") {
     try { return await enrichItem(parsed.id, token); }
@@ -313,7 +322,12 @@ export async function getMercadoLivreOffer(input: string) {
       // IDs de catalogo e de anuncio compartilham o prefixo MLB. So tentamos
       // catalogo quando o recurso de item realmente nao existe; erros de
       // permissao precisam chegar ate a interface para orientar a configuracao.
-      if (error instanceof MercadoLivreApiError && error.status !== 404) throw error;
+      if (error instanceof MercadoLivreApiError && error.status !== 404) {
+        const fallback = await scrapeMercadoLivreListing(mercadoLivreListingUrl(parsed.id), 1, 10).catch(() => null);
+        const item = fallback?.items.find((offer) => offer.itemId === parsed.id);
+        if (item) return item;
+        throw error;
+      }
       return enrichProduct(parsed.id, token);
     }
   }
@@ -350,14 +364,19 @@ export async function searchMercadoLivreOffers(queryInput: string, limit = 20) {
     });
     priced = [...priced, ...bestSellers.filter((item) => item.price != null)];
   }
+  let marketplaceItems: MercadoLivreOffer[] = [];
+  if (priced.length < Math.min(8, limit)) {
+    const marketplace = await scrapeMercadoLivreListing(mercadoLivreListingUrl(query), 1, limit).catch(() => null);
+    marketplaceItems = marketplace?.items.filter((item) => item.price != null) || [];
+  }
   const seen = new Map<string, MercadoLivreOffer>();
-  for (const item of [...priced, ...catalogOffers]) if (!seen.has(item.id)) seen.set(item.id, item);
+  for (const item of [...marketplaceItems, ...priced, ...catalogOffers]) if (!seen.has(item.id)) seen.set(item.id, item);
   const items = [...seen.values()].slice(0, limit);
   return {
     query,
     category: discovery ? { categoryId: discovery.category_id || null, categoryName: discovery.category_name || null, domainId: discovery.domain_id || null, domainName: discovery.domain_name || null } : null,
     items,
     total: finite(search.paging?.total) || items.length,
-    mode: priced.length ? "offers" as const : "catalog" as const,
+    mode: marketplaceItems.length ? "marketplace" as const : priced.length ? "offers" as const : "catalog" as const,
   };
 }
