@@ -31,6 +31,7 @@ import {
   Settings2,
   ShieldCheck,
   ShoppingBag,
+  Sparkles,
   Smartphone,
   ScrollText,
   Sun,
@@ -578,6 +579,16 @@ export default function Dashboard() {
   const [offerSending, setOfferSending] = useState(false);
   const [offerTemplate, setOfferTemplate] = useState(defaultOfferTemplate);
   const [templateSavedAt, setTemplateSavedAt] = useState<string | null>(null);
+  const [promotionInput, setPromotionInput] = useState("");
+  const [promotionItem, setPromotionItem] = useState<CatalogItem | null>(null);
+  const [promotionRecordId, setPromotionRecordId] = useState("");
+  const [promotionStore, setPromotionStore] = useState<"amazon" | "mercadolivre">("mercadolivre");
+  const [promotionMessage, setPromotionMessage] = useState("");
+  const [promotionIncludeImage, setPromotionIncludeImage] = useState(true);
+  const [promotionGroups, setPromotionGroups] = useState<string[]>([]);
+  const [promotionGroupSearch, setPromotionGroupSearch] = useState("");
+  const [promotionLoading, setPromotionLoading] = useState(false);
+  const [promotionSending, setPromotionSending] = useState(false);
   const [monitoringActive, setMonitoringActive] = useState(false);
   const [monitoringCategory, setMonitoringCategory] = useState("Geral");
   const [monitoringIntervalMinutes, setMonitoringIntervalMinutes] = useState("2");
@@ -737,6 +748,10 @@ export default function Dashboard() {
   }, [groups, configs]);
 
   const destinationGroups = useMemo(() => groups.filter((group) => configs[group.JID]?.role === "destination"), [groups, configs]);
+  const filteredPromotionGroups = useMemo(() => {
+    const value = promotionGroupSearch.trim().toLowerCase();
+    return value ? destinationGroups.filter((group) => `${group.Name} ${group.JID}`.toLowerCase().includes(value)) : destinationGroups;
+  }, [destinationGroups, promotionGroupSearch]);
   const filteredGroups = useMemo(() => {
     const value = search.trim().toLowerCase();
     if (!value) return groups;
@@ -757,6 +772,11 @@ export default function Dashboard() {
     { value: products.length, label: "produtos no histórico", Icon: PackageSearch },
     { value: productTotals.converted || 0, label: "links convertidos", Icon: Link2 },
     { value: productTotals.sent || 0, label: "ofertas enviadas", Icon: Send },
+  ];
+  const promotionStatItems = [
+    { value: promotionItem ? 1 : 0, label: "promoção preparada", Icon: Sparkles },
+    { value: promotionGroups.length, label: "grupos selecionados", Icon: UsersRound },
+    { value: promotionItem?.imageUrl && promotionIncludeImage ? 1 : 0, label: "foto no envio", Icon: ShoppingBag },
   ];
   const catalogProducts = useMemo(() => products.filter((product) =>
     product.status === "sent"
@@ -1180,7 +1200,7 @@ export default function Dashboard() {
     }
   }
 
-  function composeOfferMessage(item: CatalogItem, link = item.url || "") {
+  function composeOfferMessage(item: CatalogItem, link = item.url || "", storeOverride?: "amazon" | "mercadolivre") {
     const currency = item.currency || "BRL";
     const currentPrice = item.price != null ? formatMoney(item.price, currency) : "Consulte o preço no link";
     const hasPreviousPrice = Boolean(item.originalPrice && item.price && item.originalPrice > item.price);
@@ -1190,7 +1210,7 @@ export default function Dashboard() {
     const coupon = item.coupon && typeof item.coupon === "object"
       ? String(item.coupon.code || item.coupon.text || item.coupon.label || "Cupom disponível")
       : "";
-    const store = catalogSearchStore === "amazon" ? "Amazon" : "Mercado Livre";
+    const store = (storeOverride || catalogSearchStore) === "amazon" ? "Amazon" : "Mercado Livre";
     const values: Record<string, string> = {
       "{{titulo}}": item.title || "",
       "{{preco}}": currentPrice,
@@ -1213,6 +1233,115 @@ export default function Dashboard() {
     return Object.entries(values).reduce((message, [variable, value]) => message.split(variable).join(value), offerTemplate)
       .replace(/\n{3,}/g, "\n\n")
       .trim();
+  }
+
+  function promotionItemFromRecord(record: ProductRecord): CatalogItem {
+    const data = parseProductData(record.productDataJson) || {};
+    const offers = data.offers && typeof data.offers === "object" ? data.offers as Record<string, unknown> : {};
+    const shipping = data.shipping && typeof data.shipping === "object" ? data.shipping as Record<string, unknown> : {};
+    const asNumber = (...values: unknown[]) => {
+      for (const value of values) {
+        const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value.replace(",", ".")) : NaN;
+        if (Number.isFinite(parsed) && parsed > 0) return parsed;
+      }
+      return null;
+    };
+    const price = asNumber(data.price, offers.price, offers.lowPrice);
+    const originalPrice = asNumber(data.originalPrice, data.basePrice, offers.highPrice);
+    const discountPercentage = price && originalPrice && originalPrice > price ? Math.round((1 - price / originalPrice) * 100) : 0;
+    return {
+      id: record.id,
+      itemId: record.store === "mercadolivre" ? record.productCode : null,
+      catalogProductId: typeof data.catalogProductId === "string" ? data.catalogProductId : null,
+      title: record.title || String(data.title || data.name || "Produto selecionado"),
+      imageUrl: record.imageUrl,
+      url: record.affiliateUrl || record.resolvedUrl || record.sourceUrl,
+      price,
+      originalPrice: originalPrice && originalPrice > (price || 0) ? originalPrice : null,
+      currency: String(data.currencyId || offers.priceCurrency || "BRL"),
+      brand: typeof data.brand === "string" ? data.brand : null,
+      categoryId: typeof data.categoryId === "string" ? data.categoryId : null,
+      categoryName: typeof data.categoryName === "string" ? data.categoryName : typeof data.category === "string" ? data.category : null,
+      seller: typeof data.seller === "string" || typeof data.seller === "number" ? data.seller : null,
+      freeShipping: Boolean(shipping.freeShipping || shipping.free_shipping),
+      full: Boolean(shipping.full || shipping.logisticType === "fulfillment"),
+      coupon: data.coupon && typeof data.coupon === "object" ? data.coupon as Record<string, unknown> : null,
+      discountPercentage,
+      source: record.store === "amazon" ? "web_search" : "item",
+      raw: data,
+    };
+  }
+
+  async function generatePromotionPreview() {
+    if (!promotionInput.trim()) return toast.error("Cole o link do produto.");
+    setPromotionLoading(true);
+    setPromotionItem(null);
+    try {
+      const response = await fetch("/api/products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input: promotionInput.trim(), cookies: mlSessionCookies }),
+      });
+      const result = await response.json() as { products?: ProductRecord[]; error?: string };
+      if (!response.ok || !result.products?.length) throw new Error(result.error || "O produto não pôde ser identificado.");
+      const record = result.products[0];
+      if (record.store !== "amazon" && record.store !== "mercadolivre") throw new Error("Use um link da Amazon ou do Mercado Livre.");
+      const item = promotionItemFromRecord(record);
+      setPromotionStore(record.store);
+      setPromotionRecordId(record.id);
+      setPromotionItem(item);
+      setPromotionIncludeImage(Boolean(item.imageUrl));
+      setPromotionMessage(composeOfferMessage(item, item.url || record.sourceUrl, record.store));
+      toast.success("Promoção pronta para revisar e enviar.");
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "Não foi possível gerar a promoção.");
+    } finally {
+      setPromotionLoading(false);
+    }
+  }
+
+  function togglePromotionGroup(jid: string) {
+    setPromotionGroups((current) => current.includes(jid) ? current.filter((item) => item !== jid) : [...current, jid]);
+  }
+
+  function updatePromotionItem(patch: Partial<CatalogItem>) {
+    setPromotionItem((current) => {
+      if (!current) return current;
+      const next = { ...current, ...patch };
+      setPromotionMessage(composeOfferMessage(next, next.url || "", promotionStore));
+      return next;
+    });
+  }
+
+  async function sendPromotionToGroups() {
+    if (!promotionItem) return toast.error("Gere a promoção primeiro.");
+    if (!promotionGroups.length) return toast.error("Escolha pelo menos um grupo de destino.");
+    if (!promotionMessage.trim()) return toast.error("A mensagem está vazia.");
+    if (!whatsapp.instanceToken.trim()) return toast.error("Informe o token da UAZAPI em WhatsApp / UAZAPI.");
+    setPromotionSending(true);
+    let sent = 0;
+    const failures: string[] = [];
+    for (const destinationJid of promotionGroups) {
+      try {
+        const response = await fetch("/api/offers/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Promozap-Admin-Token": whatsapp.instanceToken.trim() },
+          body: JSON.stringify({ destinationJid, text: promotionMessage, imageUrl: promotionItem.imageUrl, includeImage: promotionIncludeImage, productId: promotionItem.itemId || promotionItem.id }),
+        });
+        const result = await response.json() as { error?: string };
+        if (!response.ok) throw new Error(result.error || "Falha no envio.");
+        sent += 1;
+      } catch (caught) {
+        failures.push(destinationGroups.find((group) => group.JID === destinationJid)?.Name || destinationJid);
+      }
+    }
+    if (sent && promotionRecordId) {
+      await fetch("/api/products", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: promotionRecordId, status: "sent", destinationGroup: promotionGroups.join(",") }) }).catch(() => undefined);
+    }
+    if (sent) toast.success(`Oferta enviada para ${sent} grupo${sent === 1 ? "" : "s"}.`);
+    if (failures.length) toast.error(`Falha em ${failures.length} grupo(s): ${failures.join(", ")}.`);
+    setPromotionSending(false);
+    void loadLogs();
   }
 
   function saveOfferTemplate() {
@@ -1511,6 +1640,7 @@ export default function Dashboard() {
 
   const pageMeta = {
     groups: ["Grupos", "Organize fontes, destinos e categorias da operação."],
+    generate: ["Gerar promoção", "Cole um produto, revise a mensagem e envie para seus grupos."],
     products: ["Produtos encontrados", "Acompanhe cada link identificado, convertido e enviado."],
     catalog: ["Dados dos produtos", "Veja tudo o que foi extraído das ofertas enviadas da Amazon e do Mercado Livre."],
     discovery: ["Consultar produtos", "Pesquise recomendações, preços e filtros nos catálogos oficiais."],
@@ -1535,6 +1665,7 @@ export default function Dashboard() {
             </div>
             <nav className="flex-1 space-y-1 overflow-y-auto p-3 text-sm">
               {[
+                ["generate", "Gerar promoção", Sparkles],
                 ["groups", "Grupos", UsersRound],
                 ["products", "Produtos", PackageSearch],
                 ["catalog", "Dados dos produtos", Database],
@@ -1582,7 +1713,7 @@ export default function Dashboard() {
             </div>
 
           <div className="mb-6 grid grid-cols-3 overflow-hidden rounded-2xl border border-[#27322b] bg-[#0b100d] shadow-[0_18px_50px_rgba(0,0,0,.28)]">
-            {(activeTab === "products" ? productStatItems : activeTab === "catalog" ? catalogStatItems : activeTab === "discovery" ? discoveryStatItems : activeTab === "ranking" ? rankingStatItems : statItems).map(({ value, label, Icon }, index) => (
+            {(activeTab === "generate" ? promotionStatItems : activeTab === "products" ? productStatItems : activeTab === "catalog" ? catalogStatItems : activeTab === "discovery" ? discoveryStatItems : activeTab === "ranking" ? rankingStatItems : statItems).map(({ value, label, Icon }, index) => (
               <div key={label} className={`px-3 py-4 sm:px-5 ${index ? "border-l border-[#27322b]" : ""}`}>
                 <Icon className="mb-2 size-4 text-[#00a947]" />
                 <p className="text-2xl font-extrabold tracking-tight">{value}</p>
@@ -1596,6 +1727,7 @@ export default function Dashboard() {
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-5">
             <TabsList className="h-12 w-full justify-start overflow-x-auto rounded-xl border border-[#27322b] bg-[#0b100d] p-1 lg:hidden">
+              <TabsTrigger value="generate" className="h-10 min-w-40 rounded-lg px-4">Gerar promoção</TabsTrigger>
               <TabsTrigger value="groups" className="h-10 min-w-28 rounded-lg px-4">Grupos</TabsTrigger>
               <TabsTrigger value="products" className="h-10 min-w-28 rounded-lg px-4">Produtos</TabsTrigger>
               <TabsTrigger value="catalog" className="h-10 min-w-40 rounded-lg px-4">Dados dos produtos</TabsTrigger>
@@ -1671,6 +1803,70 @@ export default function Dashboard() {
               </Card>
               <div className="mt-4 flex justify-end">
                 <Button onClick={() => void saveGroups()} disabled={saving} className="h-12 w-full rounded-xl bg-[#00c853] px-6 text-[#04140a] shadow-[0_10px_30px_rgba(0,200,83,.28)] hover:bg-[#16dc61] sm:w-auto">{saving ? <LoaderCircle className="animate-spin" /> : <Check />} Salvar organização</Button>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="generate" id="gerar-promocao">
+              <div className="space-y-5">
+                <Card className="overflow-hidden border-[#26372d] bg-[#09100c] shadow-[0_20px_60px_rgba(0,0,0,.24)]">
+                  <CardHeader className="border-b border-[#213028] bg-[linear-gradient(110deg,rgba(0,200,83,.13),transparent_56%)]">
+                    <div className="flex items-start gap-3">
+                      <div className="grid size-11 shrink-0 place-items-center rounded-xl bg-[#30dd6b] text-[#04140a]"><Sparkles className="size-5" /></div>
+                      <div><CardTitle className="text-xl">Transformar produto em promoção</CardTitle><CardDescription className="mt-1">Cole um link da Amazon ou do Mercado Livre. O painel busca a foto, os preços e converte o link de afiliado.</CardDescription></div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="pt-5">
+                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px]">
+                      <label className="space-y-2 text-sm font-bold">Link do produto<Input value={promotionInput} onChange={(event) => setPromotionInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void generatePromotionPreview(); }} placeholder="https://www.mercadolivre.com.br/... ou https://www.amazon.com.br/..." className="h-12 border-[#35483d] bg-[#050806]" /></label>
+                      <Button onClick={() => void generatePromotionPreview()} disabled={promotionLoading} className="h-12 self-end rounded-xl bg-[#30dd6b] font-black text-[#04140a] hover:bg-[#55ec82]">{promotionLoading ? <LoaderCircle className="animate-spin" /> : <Sparkles />} {promotionLoading ? "Buscando dados..." : "Gerar promoção"}</Button>
+                    </div>
+                    <p className="mt-3 text-xs leading-5 text-[#829389]">A imagem usada será a imagem oficial encontrada na loja. O texto segue o modelo salvo em “Layout das mensagens”.</p>
+                  </CardContent>
+                </Card>
+
+                {promotionItem ? <div className="grid gap-5 2xl:grid-cols-[minmax(300px,.85fr)_minmax(360px,1fr)_minmax(300px,.8fr)]">
+                  <Card className="h-fit border-[#26372d] bg-[#09100c] shadow-none">
+                    <CardHeader><CardTitle className="text-lg">Dados da oferta</CardTitle><CardDescription>Revise os dados extraídos antes de publicar.</CardDescription></CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="overflow-hidden rounded-2xl border border-[#26372d] bg-white p-4"><div className="aspect-[4/3]">{promotionItem.imageUrl ? <img src={promotionItem.imageUrl} alt={promotionItem.title} className="h-full w-full object-contain" /> : <div className="grid h-full place-items-center text-[#708078]"><ShoppingBag className="size-12" /></div>}</div></div>
+                      <label className="block space-y-1.5 text-xs font-bold text-[#aebbb3]">Título<Input value={promotionItem.title} onChange={(event) => updatePromotionItem({ title: event.target.value })} className="h-11 border-[#35483d] bg-[#050806] text-sm" /></label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="block space-y-1.5 text-xs font-bold text-[#aebbb3]">Preço atual<Input type="number" step="0.01" value={promotionItem.price ?? ""} onChange={(event) => updatePromotionItem({ price: event.target.value ? Number(event.target.value) : null })} className="h-11 border-[#35483d] bg-[#050806] text-sm" /></label>
+                        <label className="block space-y-1.5 text-xs font-bold text-[#aebbb3]">Preço anterior<Input type="number" step="0.01" value={promotionItem.originalPrice ?? ""} onChange={(event) => { const originalPrice = event.target.value ? Number(event.target.value) : null; const discountPercentage = originalPrice && promotionItem.price && originalPrice > promotionItem.price ? Math.round((1 - promotionItem.price / originalPrice) * 100) : 0; updatePromotionItem({ originalPrice, discountPercentage }); }} className="h-11 border-[#35483d] bg-[#050806] text-sm" /></label>
+                      </div>
+                      <label className="block space-y-1.5 text-xs font-bold text-[#aebbb3]">Cupom<Input value={promotionItem.coupon ? String(promotionItem.coupon.code || promotionItem.coupon.text || "") : ""} onChange={(event) => updatePromotionItem({ coupon: event.target.value ? { code: event.target.value } : null })} placeholder="Sem cupom" className="h-11 border-[#35483d] bg-[#050806] text-sm" /></label>
+                      <div className="flex items-center justify-between rounded-xl border border-[#26372d] bg-[#050806] p-3"><div><p className="text-sm font-bold">Enviar foto oficial</p><p className="mt-1 text-xs text-[#829389]">A foto segue junto com o texto.</p></div><Switch checked={promotionIncludeImage} onCheckedChange={setPromotionIncludeImage} disabled={!promotionItem.imageUrl} /></div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="h-fit border-[#26372d] bg-[#09100c] shadow-none">
+                    <CardHeader><div className="flex items-start justify-between gap-3"><div><CardTitle className="text-lg">Preview da mensagem</CardTitle><CardDescription>O conteúdo abaixo é o que chegará ao grupo.</CardDescription></div><Badge className="bg-[#183524] text-[#77eda0]">{promotionStore === "amazon" ? "Amazon" : "Mercado Livre"}</Badge></div></CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="rounded-2xl bg-[#0b1410] p-3 sm:p-5" style={{ backgroundImage: "radial-gradient(circle at 20% 20%, rgba(63,115,83,.18) 0 1px, transparent 1px)", backgroundSize: "18px 18px" }}>
+                        <div className="mx-auto max-w-md overflow-hidden rounded-xl rounded-tl-sm bg-[#1e2a23] shadow-[0_10px_30px_rgba(0,0,0,.35)]">
+                          {promotionIncludeImage && promotionItem.imageUrl ? <div className="bg-white p-2"><img src={promotionItem.imageUrl} alt="Foto da promoção" className="aspect-[4/3] w-full object-contain" /></div> : null}
+                          <div className="p-3"><WhatsAppMessage text={promotionMessage} /><p className="mt-1 text-right text-[11px] text-[#9aaba1]">agora ✓✓</p></div>
+                        </div>
+                      </div>
+                      <label className="block space-y-2 text-sm font-bold">Editar mensagem<Textarea value={promotionMessage} onChange={(event) => setPromotionMessage(event.target.value)} rows={12} className="min-h-64 resize-y border-[#35483d] bg-[#050806] leading-6" /></label>
+                      <div className="grid gap-2 sm:grid-cols-2"><Button variant="outline" onClick={() => { void navigator.clipboard.writeText(promotionMessage); toast.success("Mensagem copiada."); }} className="border-[#35483d] bg-[#111813] text-white"><Copy /> Copiar texto</Button><Button variant="outline" onClick={() => setActiveTab("templates")} className="border-[#35483d] bg-[#111813] text-white"><LayoutTemplate /> Editar modelo</Button></div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="h-fit border-[#26372d] bg-[#09100c] shadow-none 2xl:sticky 2xl:top-24">
+                    <CardHeader><CardTitle className="text-lg">Enviar para grupos</CardTitle><CardDescription>Escolha um ou vários destinos.</CardDescription></CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#829389]" /><Input value={promotionGroupSearch} onChange={(event) => setPromotionGroupSearch(event.target.value)} placeholder="Buscar grupo..." className="h-11 border-[#35483d] bg-[#050806] pl-9" /></div>
+                      {destinationGroups.length ? <button type="button" onClick={() => setPromotionGroups(promotionGroups.length === destinationGroups.length ? [] : destinationGroups.map((group) => group.JID))} className="flex w-full items-center gap-3 rounded-xl border border-[#26372d] bg-[#0d1711] p-3 text-left text-sm font-bold hover:border-[#3d6a4b]"><span className={`grid size-5 place-items-center rounded border ${promotionGroups.length === destinationGroups.length ? "border-[#30dd6b] bg-[#30dd6b] text-[#04140a]" : "border-[#506158]"}`}>{promotionGroups.length === destinationGroups.length ? <Check className="size-3.5" /> : null}</span>Selecionar todos</button> : null}
+                      <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
+                        {filteredPromotionGroups.map((group) => { const selected = promotionGroups.includes(group.JID); return <button key={group.JID} type="button" onClick={() => togglePromotionGroup(group.JID)} className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition ${selected ? "border-[#30dd6b] bg-[#0f2b18]" : "border-[#26372d] bg-[#0d1711] hover:border-[#3d6a4b]"}`}><span className={`grid size-5 shrink-0 place-items-center rounded border ${selected ? "border-[#30dd6b] bg-[#30dd6b] text-[#04140a]" : "border-[#506158]"}`}>{selected ? <Check className="size-3.5" /> : null}</span><span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#173c28] text-xs font-black text-[#78eea0]">{initials(group.Name || "G")}</span><span className="min-w-0"><span className="block truncate text-sm font-bold">{group.Name}</span><span className="block truncate text-xs text-[#829389]">WhatsApp · grupo</span></span></button>; })}
+                        {!destinationGroups.length ? <div className="rounded-xl border border-dashed border-[#34483c] p-6 text-center"><UsersRound className="mx-auto mb-2 size-8 text-[#63746a]" /><p className="text-sm font-bold">Nenhum destino configurado</p><button type="button" onClick={() => setActiveTab("groups")} className="mt-2 text-xs font-bold text-[#58e683] underline">Configurar grupos</button></div> : null}
+                      </div>
+                      <Button onClick={() => void sendPromotionToGroups()} disabled={promotionSending || !promotionGroups.length || !promotionMessage.trim()} className="h-12 w-full rounded-xl bg-[#30dd6b] font-black text-[#04140a] hover:bg-[#55ec82]">{promotionSending ? <LoaderCircle className="animate-spin" /> : <Send />} {promotionSending ? "Enviando..." : `Enviar para ${promotionGroups.length || 0} grupo${promotionGroups.length === 1 ? "" : "s"}`}</Button>
+                      <p className="text-center text-xs leading-5 text-[#829389]">Cada grupo recebe uma mensagem separada com a foto oficial e o seu link convertido.</p>
+                    </CardContent>
+                  </Card>
+                </div> : <div className="rounded-2xl border border-dashed border-[#34483c] bg-[#09100c] px-6 py-14 text-center"><Sparkles className="mx-auto mb-3 size-10 text-[#4e6958]" /><p className="font-bold">O preview aparecerá aqui</p><p className="mt-1 text-sm text-[#829389]">Cole um link acima para começar.</p></div>}
               </div>
             </TabsContent>
 
