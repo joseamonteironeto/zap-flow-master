@@ -13,6 +13,7 @@ type BrowserCookie = {
 };
 
 export type GeneratedLink = {
+  id?: string;
   origin_url?: string;
   short_url?: string;
   long_url?: string;
@@ -37,6 +38,7 @@ export function findMercadoLivreShortUrl(item?: GeneratedLink | null) {
       // Tenta o próximo campo retornado pelo gerador.
     }
   }
+  if (typeof item.id === "string" && /^[a-z0-9_-]{4,40}$/i.test(item.id)) return `https://meli.la/${item.id}`;
   return "";
 }
 
