@@ -1284,6 +1284,19 @@ export default function Dashboard() {
   }
 
   function mercadoLivreAffiliateSource(record: ProductRecord, item: CatalogItem) {
+    for (const value of [record.sourceUrl, record.resolvedUrl, item.url]) {
+      if (!value) continue;
+      try {
+        const url = new URL(value);
+        if (!url.hostname.toLowerCase().endsWith("mercadolivre.com.br")) continue;
+        const itemHint = url.searchParams.get("wid")?.match(/^MLB-?(\d{7,})$/i)
+          || url.searchParams.get("item_id")?.match(/^MLB-?(\d{7,})$/i)
+          || url.searchParams.get("pdp_filters")?.match(/(?:^|[|,;])item_id\s*[:=]\s*MLB-?(\d{7,})(?:$|[|,;])/i);
+        if (itemHint) return `https://produto.mercadolivre.com.br/MLB-${itemHint[1]}`;
+      } catch {
+        // Continua tentando as demais fontes conhecidas do produto.
+      }
+    }
     const direct = [record.resolvedUrl, record.sourceUrl, item.url].find((value) => {
       if (!value || !/\bMLB-?\d{7,}\b/i.test(value)) return false;
       try {

@@ -41,6 +41,17 @@ function identify(url: URL) {
     if (asin) return { store: "amazon" as const, productCode: asin, canonicalUrl: `https://www.amazon.com.br/dp/${asin}` };
   }
   if (mercadoLivreHosts.test(url.hostname)) {
+    const itemHint = url.searchParams.get("wid")?.match(/^MLB-?(\d{7,})$/i)
+      || url.searchParams.get("item_id")?.match(/^MLB-?(\d{7,})$/i)
+      || url.searchParams.get("pdp_filters")?.match(/(?:^|[|,;])item_id\s*[:=]\s*MLB-?(\d{7,})(?:$|[|,;])/i);
+    if (itemHint) {
+      const productCode = `MLB${itemHint[1]}`;
+      return {
+        store: "mercadolivre" as const,
+        productCode,
+        canonicalUrl: `https://produto.mercadolivre.com.br/MLB-${itemHint[1]}`,
+      };
+    }
     const matched = url.pathname.match(/\bMLB-?(\d{7,})\b/i);
     if (matched) {
       const raw = matched[0].toUpperCase();
