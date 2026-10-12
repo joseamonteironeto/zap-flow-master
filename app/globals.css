@@ -204,3 +204,26 @@ button, input, select { font: inherit; }
 .product-detail-modal [class*="text-white"] { color: #243447 !important; }
 .product-detail-modal textarea,
 .product-detail-modal select { background: #fff !important; border-color: #cfd9e0 !important; color: #243447 !important; }
+
+/* A área de geração acompanha o tema do painel. O preview do WhatsApp continua
+   escuro de propósito para representar fielmente a mensagem enviada. */
+.promozap-light .promotion-builder [class~="bg-[#09100c]"],
+.promozap-light .promotion-builder [class~="bg-[#050806]"],
+.promozap-light .promotion-builder [class~="bg-[#0d1711]"],
+.promozap-light .promotion-builder [class~="bg-[#111813]"] { background-color: #ffffff !important; }
+.promozap-light .promotion-builder [class~="bg-[#0f2b18]"] { background-color: #e5f8eb !important; }
+.promozap-light .promotion-builder [class~="border-[#26372d]"],
+.promozap-light .promotion-builder [class~="border-[#213028]"],
+.promozap-light .promotion-builder [class~="border-[#35483d]"],
+.promozap-light .promotion-builder [class~="border-[#34483c]"],
+.promozap-light .promotion-builder [class~="border-[#3d6a4b]"] { border-color: #d6e1da !important; }
+.promozap-light .promotion-builder [class~="text-[#829389]"],
+.promozap-light .promotion-builder [class~="text-[#aebbb3]"],
+.promozap-light .promotion-builder [class~="text-[#63746a]"] { color: #64736a !important; }
+.promozap-light .promotion-builder [class~="text-white"] { color: #17221b !important; }
+.promozap-light .promotion-builder input,
+.promozap-light .promotion-builder textarea { background-color: #ffffff !important; border-color: #ccd9d1 !important; color: #17221b !important; }
+.promozap-light .promotion-builder [data-slot="card"] { box-shadow: 0 10px 32px rgb(30 62 43 / 8%); }
+.promozap-light .promotion-builder .whatsapp-preview-shell { background-color: #0b1410 !important; }
+.promozap-light .promotion-builder .whatsapp-preview-message { background-color: #1e2a23 !important; color: #eef5f0 !important; }
+.promozap-light .promotion-builder .whatsapp-preview-message [class~="text-[#9aaba1]"] { color: #9aaba1 !important; }

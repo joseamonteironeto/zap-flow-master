@@ -589,6 +589,7 @@ export default function Dashboard() {
   const [promotionGroupSearch, setPromotionGroupSearch] = useState("");
   const [promotionLoading, setPromotionLoading] = useState(false);
   const [promotionSending, setPromotionSending] = useState(false);
+  const [promotionDataWarning, setPromotionDataWarning] = useState("");
   const [monitoringActive, setMonitoringActive] = useState(false);
   const [monitoringCategory, setMonitoringCategory] = useState("Geral");
   const [monitoringIntervalMinutes, setMonitoringIntervalMinutes] = useState("2");
@@ -1276,6 +1277,7 @@ export default function Dashboard() {
     if (!promotionInput.trim()) return toast.error("Cole o link do produto.");
     setPromotionLoading(true);
     setPromotionItem(null);
+    setPromotionDataWarning("");
     try {
       const response = await fetch("/api/products", {
         method: "POST",
@@ -1286,7 +1288,36 @@ export default function Dashboard() {
       if (!response.ok || !result.products?.length) throw new Error(result.error || "O produto não pôde ser identificado.");
       const record = result.products[0];
       if (record.store !== "amazon" && record.store !== "mercadolivre") throw new Error("Use um link da Amazon ou do Mercado Livre.");
-      const item = promotionItemFromRecord(record);
+      let item = promotionItemFromRecord(record);
+      if (record.store === "mercadolivre" && localCollectorToken.trim()) {
+        try {
+          const collectorResponse = await fetch(`${localCollectorUrl.replace(/\/$/, "")}/scrape`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Promozap-Local-Token": localCollectorToken.trim() },
+            body: JSON.stringify({ input: record.resolvedUrl || promotionInput.trim() }),
+          });
+          const collectorResult = await collectorResponse.json() as { ok?: boolean; product?: LocalCollectorProduct; error?: string };
+          if (!collectorResponse.ok || !collectorResult.product?.ok) throw new Error(collectorResult.product?.userActionMessage || collectorResult.error || "O coletor não retornou os dados completos.");
+          const pageItem = localProductToCatalog(collectorResult.product);
+          item = {
+            ...pageItem,
+            id: record.id,
+            url: record.affiliateUrl || pageItem.url || record.resolvedUrl || record.sourceUrl,
+            imageUrl: pageItem.imageUrl || record.imageUrl,
+            title: pageItem.title || record.title || "Produto selecionado",
+          };
+          setLocalCollectorConnected(true);
+          setLocalCollectorResult(collectorResult.product);
+        } catch (collectorError) {
+          setLocalCollectorConnected(false);
+          setPromotionDataWarning(collectorError instanceof Error ? collectorError.message : "O coletor local não conseguiu ler os preços.");
+        }
+      } else if (record.store === "mercadolivre" && item.price == null) {
+        setPromotionDataWarning("A API devolveu apenas nome e foto. Ligue o coletor local em “Consultar produtos” para extrair preço, preço anterior, cupom, frete, parcelas e estoque diretamente da página.");
+      }
+      if (item.price == null && record.store === "amazon") {
+        setPromotionDataWarning("A Amazon não expôs o preço nesta página. Para preencher preços e ofertas automaticamente, configure as credenciais da Creators API na área de consulta de produtos.");
+      }
       setPromotionStore(record.store);
       setPromotionRecordId(record.id);
       setPromotionItem(item);
@@ -1806,7 +1837,7 @@ export default function Dashboard() {
               </div>
             </TabsContent>
 
-            <TabsContent value="generate" id="gerar-promocao">
+            <TabsContent value="generate" id="gerar-promocao" className="promotion-builder">
               <div className="space-y-5">
                 <Card className="overflow-hidden border-[#26372d] bg-[#09100c] shadow-[0_20px_60px_rgba(0,0,0,.24)]">
                   <CardHeader className="border-b border-[#213028] bg-[linear-gradient(110deg,rgba(0,200,83,.13),transparent_56%)]">
@@ -1820,7 +1851,8 @@ export default function Dashboard() {
                       <label className="space-y-2 text-sm font-bold">Link do produto<Input value={promotionInput} onChange={(event) => setPromotionInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void generatePromotionPreview(); }} placeholder="https://www.mercadolivre.com.br/... ou https://www.amazon.com.br/..." className="h-12 border-[#35483d] bg-[#050806]" /></label>
                       <Button onClick={() => void generatePromotionPreview()} disabled={promotionLoading} className="h-12 self-end rounded-xl bg-[#30dd6b] font-black text-[#04140a] hover:bg-[#55ec82]">{promotionLoading ? <LoaderCircle className="animate-spin" /> : <Sparkles />} {promotionLoading ? "Buscando dados..." : "Gerar promoção"}</Button>
                     </div>
-                    <p className="mt-3 text-xs leading-5 text-[#829389]">A imagem usada será a imagem oficial encontrada na loja. O texto segue o modelo salvo em “Layout das mensagens”.</p>
+                    <p className="mt-3 text-xs leading-5 text-[#829389]">A imagem usada será a imagem oficial encontrada na loja. No Mercado Livre, o coletor local completa preço, preço anterior, cupom, frete, parcelas e estoque. O texto segue o modelo salvo em “Layout das mensagens”.</p>
+                    {promotionDataWarning ? <div className="mt-4 flex items-start gap-3 rounded-xl border border-[#d69e35] bg-[#2a210d] p-3 text-sm leading-6 text-[#f4d277]"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{promotionDataWarning}</span></div> : null}
                   </CardContent>
                 </Card>
 
@@ -1835,6 +1867,12 @@ export default function Dashboard() {
                         <label className="block space-y-1.5 text-xs font-bold text-[#aebbb3]">Preço anterior<Input type="number" step="0.01" value={promotionItem.originalPrice ?? ""} onChange={(event) => { const originalPrice = event.target.value ? Number(event.target.value) : null; const discountPercentage = originalPrice && promotionItem.price && originalPrice > promotionItem.price ? Math.round((1 - promotionItem.price / originalPrice) * 100) : 0; updatePromotionItem({ originalPrice, discountPercentage }); }} className="h-11 border-[#35483d] bg-[#050806] text-sm" /></label>
                       </div>
                       <label className="block space-y-1.5 text-xs font-bold text-[#aebbb3]">Cupom<Input value={promotionItem.coupon ? String(promotionItem.coupon.code || promotionItem.coupon.text || "") : ""} onChange={(event) => updatePromotionItem({ coupon: event.target.value ? { code: event.target.value } : null })} placeholder="Sem cupom" className="h-11 border-[#35483d] bg-[#050806] text-sm" /></label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="rounded-xl border border-[#26372d] bg-[#050806] p-3"><p className="text-xs text-[#829389]">Código</p><p className="mt-1 break-all text-sm font-bold">{promotionItem.itemId || promotionItem.catalogProductId || promotionItem.id}</p></div>
+                        <div className="rounded-xl border border-[#26372d] bg-[#050806] p-3"><p className="text-xs text-[#829389]">Desconto</p><p className="mt-1 text-sm font-bold">{promotionItem.discountPercentage ? `${promotionItem.discountPercentage}% OFF` : "Não informado"}</p></div>
+                      </div>
+                      <label className="block space-y-1.5 text-xs font-bold text-[#aebbb3]">Link de divulgação<Input value={promotionItem.url || ""} onChange={(event) => updatePromotionItem({ url: event.target.value })} className="h-11 border-[#35483d] bg-[#050806] text-sm" /></label>
+                      <details className="rounded-xl border border-[#26372d] bg-[#050806] p-3 text-sm"><summary className="cursor-pointer font-bold">Todos os dados extraídos</summary><div className="mt-3 grid grid-cols-2 gap-2">{[["Loja", promotionStore === "amazon" ? "Amazon" : "Mercado Livre"], ["Marca", promotionItem.brand], ["Vendedor", promotionItem.seller], ["Estoque", promotionItem.availableQuantity], ["Vendidos", promotionItem.soldQuantity], ["Condição", promotionItem.condition], ["Categoria", promotionItem.categoryName || promotionItem.categoryId], ["Entrega", promotionItem.freeShipping ? "Frete grátis" : promotionItem.full ? "Envio Full" : "Não informada"]].map(([label, value]) => <div key={String(label)} className="rounded-lg border border-[#26372d] p-2"><p className="text-[11px] text-[#829389]">{label}</p><p className="mt-1 break-words text-xs font-semibold">{value == null || value === "" ? "—" : String(value)}</p></div>)}</div></details>
                       <div className="flex items-center justify-between rounded-xl border border-[#26372d] bg-[#050806] p-3"><div><p className="text-sm font-bold">Enviar foto oficial</p><p className="mt-1 text-xs text-[#829389]">A foto segue junto com o texto.</p></div><Switch checked={promotionIncludeImage} onCheckedChange={setPromotionIncludeImage} disabled={!promotionItem.imageUrl} /></div>
                     </CardContent>
                   </Card>
@@ -1842,8 +1880,8 @@ export default function Dashboard() {
                   <Card className="h-fit border-[#26372d] bg-[#09100c] shadow-none">
                     <CardHeader><div className="flex items-start justify-between gap-3"><div><CardTitle className="text-lg">Preview da mensagem</CardTitle><CardDescription>O conteúdo abaixo é o que chegará ao grupo.</CardDescription></div><Badge className="bg-[#183524] text-[#77eda0]">{promotionStore === "amazon" ? "Amazon" : "Mercado Livre"}</Badge></div></CardHeader>
                     <CardContent className="space-y-4">
-                      <div className="rounded-2xl bg-[#0b1410] p-3 sm:p-5" style={{ backgroundImage: "radial-gradient(circle at 20% 20%, rgba(63,115,83,.18) 0 1px, transparent 1px)", backgroundSize: "18px 18px" }}>
-                        <div className="mx-auto max-w-md overflow-hidden rounded-xl rounded-tl-sm bg-[#1e2a23] shadow-[0_10px_30px_rgba(0,0,0,.35)]">
+                      <div className="whatsapp-preview-shell rounded-2xl bg-[#0b1410] p-3 sm:p-5" style={{ backgroundImage: "radial-gradient(circle at 20% 20%, rgba(63,115,83,.18) 0 1px, transparent 1px)", backgroundSize: "18px 18px" }}>
+                        <div className="whatsapp-preview-message mx-auto max-w-md overflow-hidden rounded-xl rounded-tl-sm bg-[#1e2a23] shadow-[0_10px_30px_rgba(0,0,0,.35)]">
                           {promotionIncludeImage && promotionItem.imageUrl ? <div className="bg-white p-2"><img src={promotionItem.imageUrl} alt="Foto da promoção" className="aspect-[4/3] w-full object-contain" /></div> : null}
                           <div className="p-3"><WhatsAppMessage text={promotionMessage} /><p className="mt-1 text-right text-[11px] text-[#9aaba1]">agora ✓✓</p></div>
                         </div>
