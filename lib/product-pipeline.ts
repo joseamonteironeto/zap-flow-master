@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { getAmazonProductVisual } from "@/lib/amazon-product";
 import { extractUrls, resolveProductUrl } from "@/lib/link-resolver";
-import { generateMercadoLivreLinks } from "@/lib/mercadolivre-affiliate";
+import { findMercadoLivreShortUrl, generateMercadoLivreLinks } from "@/lib/mercadolivre-affiliate";
 import { getMercadoLivreProductVisual } from "@/lib/mercadolivre-product";
 import { readIntegrationSecret, saveIntegrationSecret } from "@/lib/integration-secret";
 
@@ -157,7 +157,7 @@ export async function processProductInput(input: {
           await saveIntegrationSecret("mercadolivre_session_cookies", generated.refreshedCookies);
         }
         if (generated.ok && generated.results[0]) {
-          affiliateUrl = generated.results[0].short_url || generated.results[0].long_url || null;
+          affiliateUrl = findMercadoLivreShortUrl(generated.results[0]) || generated.results[0].long_url || null;
           status = affiliateUrl ? "converted" : "error";
           errorMessage = affiliateUrl ? null : "O Mercado Livre não retornou o link gerado.";
         } else {

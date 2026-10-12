@@ -1274,13 +1274,21 @@ export default function Dashboard() {
     };
   }
 
-  function isMercadoLivreShortAffiliateUrl(value?: string | null) {
+  function normalizeMercadoLivreShortAffiliateUrl(value?: string | null) {
     if (!value) return false;
     try {
-      return new URL(value).hostname.toLowerCase() === "meli.la";
+      const normalized = /^(?:www\.)?meli\.la\//i.test(value.trim()) ? `https://${value.trim()}` : value.trim();
+      const url = new URL(normalized);
+      return url.hostname.toLowerCase().replace(/^www\./, "") === "meli.la" && url.pathname.length > 1
+        ? `https://meli.la${url.pathname}`
+        : "";
     } catch {
-      return false;
+      return "";
     }
+  }
+
+  function isMercadoLivreShortAffiliateUrl(value?: string | null) {
+    return Boolean(normalizeMercadoLivreShortAffiliateUrl(value));
   }
 
   function mercadoLivreAffiliateSource(record: ProductRecord, item: CatalogItem) {
@@ -1312,7 +1320,8 @@ export default function Dashboard() {
   }
 
   async function createMercadoLivreShortAffiliateUrl(record: ProductRecord, item: CatalogItem) {
-    if (isMercadoLivreShortAffiliateUrl(record.affiliateUrl)) return record.affiliateUrl as string;
+    const existingShortUrl = normalizeMercadoLivreShortAffiliateUrl(record.affiliateUrl);
+    if (existingShortUrl) return existingShortUrl;
     const sourceUrl = mercadoLivreAffiliateSource(record, item);
     if (!sourceUrl) throw new Error("Não encontrei o código MLB do anúncio para gerar o link curto.");
     if (!affiliate.mercadoLivreLabel.trim()) throw new Error("Informe sua tag de afiliado em Afiliados antes de gerar a promoção.");
@@ -1327,10 +1336,9 @@ export default function Dashboard() {
       body: JSON.stringify({ urls: [sourceUrl], tag: affiliate.mercadoLivreLabel.trim(), cookies: mlSessionCookies }),
     });
     const result = await response.json() as MercadoLivreTestResult;
-    const shortUrl = result.results?.[0]?.shortUrl || "";
-    if (!response.ok || !result.ok || !isMercadoLivreShortAffiliateUrl(shortUrl)) {
-      throw new Error(result.message || "O Mercado Livre não devolveu o link curto meli.la.");
-    }
+    const shortUrl = normalizeMercadoLivreShortAffiliateUrl(result.results?.[0]?.shortUrl);
+    if (!response.ok || !result.ok) throw new Error(result.message || "O Mercado Livre recusou a geração do link.");
+    if (!shortUrl) throw new Error("O Mercado Livre gerou o link afiliado completo, mas não devolveu a versão curta meli.la para este produto.");
     return shortUrl;
   }
 

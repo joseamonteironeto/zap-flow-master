@@ -16,8 +16,29 @@ export type GeneratedLink = {
   origin_url?: string;
   short_url?: string;
   long_url?: string;
+  shortUrl?: string;
+  text?: string;
+  url?: string;
   created?: boolean;
 };
+
+export function findMercadoLivreShortUrl(item?: GeneratedLink | null) {
+  if (!item) return "";
+  const candidates = [item.short_url, item.shortUrl, item.text, item.url];
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue;
+    const match = candidate.match(/(?:https?:\/\/)?(?:www\.)?meli\.la\/[a-z0-9_-]+/i);
+    if (!match) continue;
+    const normalized = match[0].startsWith("http") ? match[0] : `https://${match[0]}`;
+    try {
+      const url = new URL(normalized);
+      if (url.hostname.toLowerCase().replace(/^www\./, "") === "meli.la") return `https://meli.la${url.pathname}`;
+    } catch {
+      // Tenta o próximo campo retornado pelo gerador.
+    }
+  }
+  return "";
+}
 
 export function parseMercadoLivreCookies(value: unknown) {
   if (typeof value !== "string" || value.length > 100_000) return null;

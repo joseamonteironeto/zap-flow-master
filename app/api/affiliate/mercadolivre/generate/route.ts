@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { NextResponse } from "next/server";
-import { generateMercadoLivreLinks } from "@/lib/mercadolivre-affiliate";
+import { findMercadoLivreShortUrl, generateMercadoLivreLinks } from "@/lib/mercadolivre-affiliate";
 import { saveIntegrationSecret } from "@/lib/integration-secret";
 
 const allowedHosts = new Set(["www.mercadolivre.com.br", "produto.mercadolivre.com.br", "mercadolivre.com.br"]);
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
     message: `${result.results.length} link(s) gerado(s) com a tag ${tag}.`,
     results: result.results.map((item) => ({
       originUrl: item.origin_url || "",
-      shortUrl: item.short_url || "",
+      shortUrl: findMercadoLivreShortUrl(item),
       longUrl: item.long_url || "",
       created: Boolean(item.created),
     })),
