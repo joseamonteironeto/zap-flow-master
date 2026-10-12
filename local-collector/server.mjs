@@ -573,6 +573,70 @@ async function scanAffiliateHub() {
   }
 }
 
+function decodeAffiliateResponse(value) {
+  try { return JSON.parse(value); } catch {
+    try { return JSON.parse(Buffer.from(value, "base64").toString("utf8")); } catch { return null; }
+  }
+}
+
+function findAffiliateShortUrl(value, depth = 0, visited = new Set()) {
+  if (value == null || depth > 5 || visited.has(value)) return "";
+  if (typeof value === "string") {
+    const match = value.match(/(?:https?:\/\/)?(?:www\.)?meli\.la\/[a-z0-9_-]+/i);
+    if (match) return match[0].startsWith("http") ? match[0] : "https://" + match[0];
+    return "";
+  }
+  if (typeof value !== "object") return "";
+  visited.add(value);
+  for (const [key, candidate] of Object.entries(value)) {
+    if (/^(?:id|short_id|shortId)$/i.test(key) && typeof candidate === "string" && /^[a-z0-9_-]{4,40}$/i.test(candidate)) {
+      return "https://meli.la/" + candidate;
+    }
+  }
+  for (const candidate of Object.values(value)) {
+    const found = findAffiliateShortUrl(candidate, depth + 1, visited);
+    if (found) return found;
+  }
+  return "";
+}
+
+async function generateAffiliateLinkLocal(input, tag) {
+  const targetUrl = normalizeInput(input);
+  if (!/^[a-z0-9_-]{2,50}$/i.test(String(tag || ""))) throw new Error("A etiqueta de afiliado não é válida.");
+  const { target, client } = await createChromeTarget();
+  try {
+    await client.call("Page.enable");
+    await client.call("Runtime.enable");
+    const loaded = client.waitFor("Page.loadEventFired", 30000);
+    await client.call("Page.navigate", { url: "https://www.mercadolivre.com.br/afiliados/linkbuilder" });
+    await loaded;
+    await waitForPage(client, "document.readyState === 'complete'", 30000);
+    const authState = await client.call("Runtime.evaluate", { expression: "location.href", returnByValue: true });
+    if (/\/login\/|identification|authentication/i.test(authState?.result?.value || "")) {
+      throw new Error("Entre no Mercado Livre na janela do coletor antes de gerar o link.");
+    }
+    const expression = "(async()=>{const response=await fetch('/affiliate-program/api/v2/affiliates/createLink',{method:'POST',headers:{'Accept':'application/json','Content-Type':'application/json','X-CSRF-Token':Date.now().toString(36)+Math.random().toString(36).slice(2)},body:JSON.stringify({urls:[" + JSON.stringify(targetUrl) + "],tag:" + JSON.stringify(String(tag || "")) + "})});return {status:response.status,text:await response.text()};})()";
+    const evaluation = await client.call("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
+    if (evaluation?.exceptionDetails) {
+      const detail = evaluation.exceptionDetails.exception?.description || evaluation.exceptionDetails.text || "erro desconhecido";
+      throw new Error(`O Chrome não conseguiu chamar o gerador do Mercado Livre: ${detail}`);
+    }
+    const upstream = evaluation?.result?.value || {};
+    const decoded = decodeAffiliateResponse(upstream.text || "");
+    const shortUrl = findAffiliateShortUrl(decoded);
+    const first = Array.isArray(decoded?.urls) ? decoded.urls[0] : null;
+    if (!shortUrl) {
+      const message = decoded?.message || (upstream.status === 401 || upstream.status === 403
+        ? "A sessão do Mercado Livre foi recusada."
+        : "O Mercado Livre não devolveu o link curto nesta tentativa.");
+      throw new Error(message);
+    }
+    return { ok: true, shortUrl, longUrl: first?.long_url || "", originUrl: first?.origin_url || targetUrl, upstreamStatus: upstream.status };
+  } finally {
+    await closeChromeTarget(target, client);
+  }
+}
+
 function normalizeDealsUrl(input) {
   const value = String(input || "https://www.mercadolivre.com.br/ofertas?promotion_type=deal_of_the_day").trim();
   const url = new URL(value);
@@ -1051,7 +1115,8 @@ const server = createServer(async (request, response) => {
   const isScrape = request.url === "/scrape" && request.method === "POST";
   const isDealsScan = request.url === "/scan-deals" && request.method === "POST";
   const isAffiliateHubScan = request.url === "/scan-affiliate-hub" && request.method === "POST";
-  if (!isScrape && !isDealsScan && !isAffiliateHubScan) return respond(response, 404, { error: "Rota não encontrada." }, headers);
+  const isAffiliateLink = request.url === "/generate-affiliate-link" && request.method === "POST";
+  if (!isScrape && !isDealsScan && !isAffiliateHubScan && !isAffiliateLink) return respond(response, 404, { error: "Rota não encontrada." }, headers);
   if (request.headers["x-promozap-local-token"] !== localToken) return respond(response, 401, { error: "Token local inválido." }, headers);
 
   let raw = "";
@@ -1061,10 +1126,10 @@ const server = createServer(async (request, response) => {
   }
   try {
     const body = JSON.parse(raw || "{}");
-    const task = isDealsScan ? scanDeals(body) : isAffiliateHubScan ? scanAffiliateHub() : scrapeQueue.then(() => scrapeProduct(body.input));
-    if (!isDealsScan && !isAffiliateHubScan) scrapeQueue = task.catch(() => undefined);
+    const task = isDealsScan ? scanDeals(body) : isAffiliateHubScan ? scanAffiliateHub() : isAffiliateLink ? generateAffiliateLinkLocal(body.input, body.tag) : scrapeQueue.then(() => scrapeProduct(body.input));
+    if (!isDealsScan && !isAffiliateHubScan && !isAffiliateLink) scrapeQueue = task.catch(() => undefined);
     const result = await task;
-    if (isDealsScan || isAffiliateHubScan) respond(response, result.ok ? 200 : 409, result, headers);
+    if (isDealsScan || isAffiliateHubScan || isAffiliateLink) respond(response, result.ok ? 200 : 409, result, headers);
     else respond(response, result.ok ? 200 : 409, { ok: result.ok, product: result }, headers);
   } catch (error) {
     respond(response, 400, { ok: false, error: error instanceof Error ? error.message : "Falha na coleta." }, headers);

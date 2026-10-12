@@ -1354,7 +1354,33 @@ export default function Dashboard() {
     const sourceUrl = mercadoLivreAffiliateSource(record, item);
     if (!sourceUrl) throw new Error("Não encontrei o código MLB do anúncio para gerar o link curto.");
     if (!affiliate.mercadoLivreLabel.trim()) throw new Error("Informe sua tag de afiliado em Afiliados antes de gerar a promoção.");
-    if (!mlSessionCookies.trim()) throw new Error("A sessão do Mercado Livre não está disponível neste navegador. Cole cookies novos em Afiliados.");
+    let localFailure = "";
+    try {
+      let collectorToken = localCollectorToken.trim();
+      if (!collectorToken) {
+        const sessionResponse = await fetch(`${localCollectorUrl.replace(/\/$/, "")}/session`, { cache: "no-store" });
+        const session = await sessionResponse.json() as { ok?: boolean; token?: string };
+        if (sessionResponse.ok && session.ok && session.token) {
+          collectorToken = session.token;
+          setLocalCollectorToken(collectorToken);
+          window.localStorage.setItem("promozap.localCollectorToken", collectorToken);
+        }
+      }
+      if (collectorToken) {
+        const localResponse = await fetch(`${localCollectorUrl.replace(/\/$/, "")}/generate-affiliate-link`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Promozap-Local-Token": collectorToken },
+          body: JSON.stringify({ input: sourceUrl, tag: affiliate.mercadoLivreLabel.trim() }),
+        });
+        const localResult = await localResponse.json() as { ok?: boolean; shortUrl?: string; error?: string };
+        const localShortUrl = normalizeMercadoLivreShortAffiliateUrl(localResult.shortUrl);
+        if (localResponse.ok && localResult.ok && localShortUrl) return localShortUrl;
+        localFailure = localResult.error || "O coletor não recebeu um meli.la.";
+      }
+    } catch (caught) {
+      localFailure = caught instanceof Error ? caught.message : "O coletor local não respondeu.";
+    }
+    if (!mlSessionCookies.trim()) throw new Error(localFailure || "A sessão do Mercado Livre não está disponível. Abra o coletor e entre na sua conta.");
 
     const response = await fetch("/api/affiliate/mercadolivre/generate", {
       method: "POST",
@@ -1367,7 +1393,7 @@ export default function Dashboard() {
     const result = await response.json() as MercadoLivreTestResult;
     const shortUrl = normalizeMercadoLivreShortAffiliateUrl(result.results?.[0]?.shortUrl);
     if (!response.ok || !result.ok) throw new Error(result.message || "O Mercado Livre recusou a geração do link.");
-    if (!shortUrl) throw new Error("O Mercado Livre gerou o link afiliado completo, mas não devolveu a versão curta meli.la para este produto.");
+    if (!shortUrl) throw new Error(`${localFailure ? `${localFailure} ` : ""}O Mercado Livre gerou o link afiliado completo, mas não devolveu a versão curta meli.la para este produto.`);
     return shortUrl;
   }
 
