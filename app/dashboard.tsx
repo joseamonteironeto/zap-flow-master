@@ -590,6 +590,7 @@ export default function Dashboard() {
   const [promotionLoading, setPromotionLoading] = useState(false);
   const [promotionSending, setPromotionSending] = useState(false);
   const [promotionDataWarning, setPromotionDataWarning] = useState("");
+  const [promotionAffiliateError, setPromotionAffiliateError] = useState("");
   const [monitoringActive, setMonitoringActive] = useState(false);
   const [monitoringCategory, setMonitoringCategory] = useState("Geral");
   const [monitoringIntervalMinutes, setMonitoringIntervalMinutes] = useState("2");
@@ -1273,11 +1274,59 @@ export default function Dashboard() {
     };
   }
 
+  function isMercadoLivreShortAffiliateUrl(value?: string | null) {
+    if (!value) return false;
+    try {
+      return new URL(value).hostname.toLowerCase() === "meli.la";
+    } catch {
+      return false;
+    }
+  }
+
+  function mercadoLivreAffiliateSource(record: ProductRecord, item: CatalogItem) {
+    const direct = [record.resolvedUrl, record.sourceUrl, item.url].find((value) => {
+      if (!value || !/\bMLB-?\d{7,}\b/i.test(value)) return false;
+      try {
+        return new URL(value).hostname.toLowerCase().endsWith("mercadolivre.com.br");
+      } catch {
+        return false;
+      }
+    });
+    if (direct) return direct;
+    const itemId = String(item.itemId || record.productCode || "").toUpperCase();
+    const match = itemId.match(/^MLB-?(\d{7,})$/);
+    return match ? `https://produto.mercadolivre.com.br/MLB-${match[1]}` : "";
+  }
+
+  async function createMercadoLivreShortAffiliateUrl(record: ProductRecord, item: CatalogItem) {
+    if (isMercadoLivreShortAffiliateUrl(record.affiliateUrl)) return record.affiliateUrl as string;
+    const sourceUrl = mercadoLivreAffiliateSource(record, item);
+    if (!sourceUrl) throw new Error("Não encontrei o código MLB do anúncio para gerar o link curto.");
+    if (!affiliate.mercadoLivreLabel.trim()) throw new Error("Informe sua tag de afiliado em Afiliados antes de gerar a promoção.");
+    if (!mlSessionCookies.trim()) throw new Error("A sessão do Mercado Livre não está disponível neste navegador. Cole cookies novos em Afiliados.");
+
+    const response = await fetch("/api/affiliate/mercadolivre/generate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(whatsapp.instanceToken.trim() ? { "X-Promozap-Admin-Token": whatsapp.instanceToken.trim() } : {}),
+      },
+      body: JSON.stringify({ urls: [sourceUrl], tag: affiliate.mercadoLivreLabel.trim(), cookies: mlSessionCookies }),
+    });
+    const result = await response.json() as MercadoLivreTestResult;
+    const shortUrl = result.results?.[0]?.shortUrl || "";
+    if (!response.ok || !result.ok || !isMercadoLivreShortAffiliateUrl(shortUrl)) {
+      throw new Error(result.message || "O Mercado Livre não devolveu o link curto meli.la.");
+    }
+    return shortUrl;
+  }
+
   async function generatePromotionPreview() {
     if (!promotionInput.trim()) return toast.error("Cole o link do produto.");
     setPromotionLoading(true);
     setPromotionItem(null);
     setPromotionDataWarning("");
+    setPromotionAffiliateError("");
     try {
       const response = await fetch("/api/products", {
         method: "POST",
@@ -1322,6 +1371,14 @@ export default function Dashboard() {
           const reason = collectorError instanceof Error ? collectorError.message : "O coletor local não conseguiu ler os preços.";
           setPromotionDataWarning(`${reason} Abra uma vez o arquivo iniciar-coletor.cmd e clique novamente em “Gerar promoção”. Depois disso, esta tela chama o coletor automaticamente.`);
         }
+        try {
+          const shortAffiliateUrl = await createMercadoLivreShortAffiliateUrl(record, item);
+          item = { ...item, url: shortAffiliateUrl };
+        } catch (affiliateError) {
+          const reason = affiliateError instanceof Error ? affiliateError.message : "Não foi possível gerar o link afiliado encurtado.";
+          item = { ...item, url: "" };
+          setPromotionAffiliateError(`${reason} O envio foi bloqueado para impedir que o link completo seja publicado por engano.`);
+        }
       }
       if (item.price == null && record.store === "amazon") {
         setPromotionDataWarning("A Amazon não expôs o preço nesta página. Para preencher preços e ofertas automaticamente, configure as credenciais da Creators API na área de consulta de produtos.");
@@ -1354,6 +1411,7 @@ export default function Dashboard() {
 
   async function sendPromotionToGroups() {
     if (!promotionItem) return toast.error("Gere a promoção primeiro.");
+    if (promotionStore === "mercadolivre" && !isMercadoLivreShortAffiliateUrl(promotionItem.url)) return toast.error("Gere o link afiliado encurtado meli.la antes de enviar.");
     if (!promotionGroups.length) return toast.error("Escolha pelo menos um grupo de destino.");
     if (!promotionMessage.trim()) return toast.error("A mensagem está vazia.");
     if (!whatsapp.instanceToken.trim()) return toast.error("Informe o token da UAZAPI em WhatsApp / UAZAPI.");
@@ -1861,6 +1919,7 @@ export default function Dashboard() {
                     </div>
                     <p className="mt-3 text-xs leading-5 text-[#829389]">A imagem usada será a imagem oficial encontrada na loja. No Mercado Livre, o coletor local completa preço, preço anterior, cupom, frete, parcelas e estoque. O texto segue o modelo salvo em “Layout das mensagens”.</p>
                     {promotionDataWarning ? <div className="mt-4 flex items-start gap-3 rounded-xl border border-[#d69e35] bg-[#2a210d] p-3 text-sm leading-6 text-[#f4d277]"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{promotionDataWarning}</span></div> : null}
+                    {promotionAffiliateError ? <div className="mt-4 flex items-start gap-3 rounded-xl border border-[#d45b5b] bg-[#2b1111] p-3 text-sm leading-6 text-[#ffaaaa]"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{promotionAffiliateError}</span></div> : null}
                   </CardContent>
                 </Card>
 
@@ -1879,7 +1938,10 @@ export default function Dashboard() {
                         <div className="rounded-xl border border-[#26372d] bg-[#050806] p-3"><p className="text-xs text-[#829389]">Código</p><p className="mt-1 break-all text-sm font-bold">{promotionItem.itemId || promotionItem.catalogProductId || promotionItem.id}</p></div>
                         <div className="rounded-xl border border-[#26372d] bg-[#050806] p-3"><p className="text-xs text-[#829389]">Desconto</p><p className="mt-1 text-sm font-bold">{promotionItem.discountPercentage ? `${promotionItem.discountPercentage}% OFF` : "Não informado"}</p></div>
                       </div>
-                      <label className="block space-y-1.5 text-xs font-bold text-[#aebbb3]">Link de divulgação<Input value={promotionItem.url || ""} onChange={(event) => updatePromotionItem({ url: event.target.value })} className="h-11 border-[#35483d] bg-[#050806] text-sm" /></label>
+                      <label className="block space-y-1.5 text-xs font-bold text-[#aebbb3]">
+                        <span className="flex items-center justify-between gap-2"><span>Link de divulgação</span>{promotionStore === "mercadolivre" ? <Badge className={isMercadoLivreShortAffiliateUrl(promotionItem.url) ? "bg-[#183524] text-[#77eda0]" : "bg-[#3a1717] text-[#ffaaaa]"}>{isMercadoLivreShortAffiliateUrl(promotionItem.url) ? "meli.la pronto" : "link curto pendente"}</Badge> : null}</span>
+                        <Input value={promotionItem.url || ""} onChange={(event) => { const url = event.target.value; updatePromotionItem({ url }); if (isMercadoLivreShortAffiliateUrl(url)) setPromotionAffiliateError(""); }} placeholder={promotionStore === "mercadolivre" ? "O link curto meli.la aparecerá aqui" : "Link de divulgação"} className="h-11 border-[#35483d] bg-[#050806] text-sm" />
+                      </label>
                       <details className="rounded-xl border border-[#26372d] bg-[#050806] p-3 text-sm"><summary className="cursor-pointer font-bold">Todos os dados extraídos</summary><div className="mt-3 grid grid-cols-2 gap-2">{[["Loja", promotionStore === "amazon" ? "Amazon" : "Mercado Livre"], ["Marca", promotionItem.brand], ["Vendedor", promotionItem.seller], ["Estoque", promotionItem.availableQuantity], ["Vendidos", promotionItem.soldQuantity], ["Condição", promotionItem.condition], ["Categoria", promotionItem.categoryName || promotionItem.categoryId], ["Entrega", promotionItem.freeShipping ? "Frete grátis" : promotionItem.full ? "Envio Full" : "Não informada"]].map(([label, value]) => <div key={String(label)} className="rounded-lg border border-[#26372d] p-2"><p className="text-[11px] text-[#829389]">{label}</p><p className="mt-1 break-words text-xs font-semibold">{value == null || value === "" ? "—" : String(value)}</p></div>)}</div></details>
                       <div className="flex items-center justify-between rounded-xl border border-[#26372d] bg-[#050806] p-3"><div><p className="text-sm font-bold">Enviar foto oficial</p><p className="mt-1 text-xs text-[#829389]">A foto segue junto com o texto.</p></div><Switch checked={promotionIncludeImage} onCheckedChange={setPromotionIncludeImage} disabled={!promotionItem.imageUrl} /></div>
                     </CardContent>
@@ -1908,8 +1970,8 @@ export default function Dashboard() {
                         {filteredPromotionGroups.map((group) => { const selected = promotionGroups.includes(group.JID); return <button key={group.JID} type="button" onClick={() => togglePromotionGroup(group.JID)} className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition ${selected ? "border-[#30dd6b] bg-[#0f2b18]" : "border-[#26372d] bg-[#0d1711] hover:border-[#3d6a4b]"}`}><span className={`grid size-5 shrink-0 place-items-center rounded border ${selected ? "border-[#30dd6b] bg-[#30dd6b] text-[#04140a]" : "border-[#506158]"}`}>{selected ? <Check className="size-3.5" /> : null}</span><span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#173c28] text-xs font-black text-[#78eea0]">{initials(group.Name || "G")}</span><span className="min-w-0"><span className="block truncate text-sm font-bold">{group.Name}</span><span className="block truncate text-xs text-[#829389]">WhatsApp · grupo</span></span></button>; })}
                         {!destinationGroups.length ? <div className="rounded-xl border border-dashed border-[#34483c] p-6 text-center"><UsersRound className="mx-auto mb-2 size-8 text-[#63746a]" /><p className="text-sm font-bold">Nenhum destino configurado</p><button type="button" onClick={() => setActiveTab("groups")} className="mt-2 text-xs font-bold text-[#58e683] underline">Configurar grupos</button></div> : null}
                       </div>
-                      <Button onClick={() => void sendPromotionToGroups()} disabled={promotionSending || !promotionGroups.length || !promotionMessage.trim()} className="h-12 w-full rounded-xl bg-[#30dd6b] font-black text-[#04140a] hover:bg-[#55ec82]">{promotionSending ? <LoaderCircle className="animate-spin" /> : <Send />} {promotionSending ? "Enviando..." : `Enviar para ${promotionGroups.length || 0} grupo${promotionGroups.length === 1 ? "" : "s"}`}</Button>
-                      <p className="text-center text-xs leading-5 text-[#829389]">Cada grupo recebe uma mensagem separada com a foto oficial e o seu link convertido.</p>
+                      <Button onClick={() => void sendPromotionToGroups()} disabled={promotionSending || !promotionGroups.length || !promotionMessage.trim() || (promotionStore === "mercadolivre" && !isMercadoLivreShortAffiliateUrl(promotionItem.url))} className="h-12 w-full rounded-xl bg-[#30dd6b] font-black text-[#04140a] hover:bg-[#55ec82]">{promotionSending ? <LoaderCircle className="animate-spin" /> : <Send />} {promotionSending ? "Enviando..." : `Enviar para ${promotionGroups.length || 0} grupo${promotionGroups.length === 1 ? "" : "s"}`}</Button>
+                      <p className="text-center text-xs leading-5 text-[#829389]">{promotionStore === "mercadolivre" ? "O envio só é liberado depois que o Mercado Livre confirma o seu link curto meli.la." : "Cada grupo recebe uma mensagem separada com a foto oficial e o seu link convertido."}</p>
                     </CardContent>
                   </Card>
                 </div> : <div className="rounded-2xl border border-dashed border-[#34483c] bg-[#09100c] px-6 py-14 text-center"><Sparkles className="mx-auto mb-3 size-10 text-[#4e6958]" /><p className="font-bold">O preview aparecerá aqui</p><p className="mt-1 text-sm text-[#829389]">Cole um link acima para começar.</p></div>}
