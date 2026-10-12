@@ -209,6 +209,14 @@ type MonitoredDeal = CatalogItem & {
   detectedAt?: string;
 };
 
+type AffiliateHubOffer = MonitoredDeal & {
+  affiliateEarningsPercentage?: number | null;
+  rating?: number | null;
+  soldText?: string | null;
+  badge?: string | null;
+  isNew?: boolean;
+};
+
 const defaultOfferTemplate = `🔥 *{{titulo}}*
 
 {{linha_preco_anterior}}✅ *Por: {{preco}}{{linha_desconto}}*
@@ -601,6 +609,15 @@ export default function Dashboard() {
   const [monitoringDeals, setMonitoringDeals] = useState<MonitoredDeal[]>([]);
   const [monitoringLastScan, setMonitoringLastScan] = useState<string | null>(null);
   const monitoringSeen = useRef(new Set<string>());
+  const [affiliateHubOffers, setAffiliateHubOffers] = useState<AffiliateHubOffer[]>([]);
+  const [affiliateHubLoading, setAffiliateHubLoading] = useState(false);
+  const [affiliateHubError, setAffiliateHubError] = useState("");
+  const [affiliateHubLastScan, setAffiliateHubLastScan] = useState<string | null>(null);
+  const [affiliateHubAutoSend, setAffiliateHubAutoSend] = useState(false);
+  const [affiliateHubInterval, setAffiliateHubInterval] = useState("5");
+  const [affiliateHubDestination, setAffiliateHubDestination] = useState("");
+  const [affiliateHubSentRevision, setAffiliateHubSentRevision] = useState(0);
+  const affiliateHubRunning = useRef(false);
   const [catalogCredentials, setCatalogCredentials] = useState({ amazonConfigured: false, mercadoLivreConfigured: false, mercadoLivreAppConfigured: false, mercadoLivreExpiresAt: null as string | null, mercadoLivreUserId: null as string | null });
   const [amazonClientId, setAmazonClientId] = useState("");
   const [amazonClientSecret, setAmazonClientSecret] = useState("");
@@ -683,10 +700,22 @@ export default function Dashboard() {
     const savedUrl = window.localStorage.getItem("promozap.localCollectorUrl");
     const savedToken = window.localStorage.getItem("promozap.localCollectorToken");
     const savedTemplate = window.localStorage.getItem("promozap.offerTemplate.v1");
+    const savedHubSettings = window.localStorage.getItem("promozap.affiliateHub.settings.v1");
     if (savedUrl) setLocalCollectorUrl(savedUrl);
     if (savedToken) setLocalCollectorToken(savedToken);
     if (savedTemplate) setOfferTemplate(savedTemplate);
+    if (savedHubSettings) {
+      try {
+        const settings = JSON.parse(savedHubSettings) as { interval?: string; destination?: string };
+        if (settings.interval) setAffiliateHubInterval(settings.interval);
+        if (settings.destination) setAffiliateHubDestination(settings.destination);
+      } catch {}
+    }
   }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("promozap.affiliateHub.settings.v1", JSON.stringify({ interval: affiliateHubInterval, destination: affiliateHubDestination }));
+  }, [affiliateHubInterval, affiliateHubDestination]);
 
   useEffect(() => {
     window.localStorage.setItem("promozap.theme", theme);
@@ -1342,8 +1371,13 @@ export default function Dashboard() {
     return shortUrl;
   }
 
-  async function generatePromotionPreview() {
-    if (!promotionInput.trim()) return toast.error("Cole o link do produto.");
+  async function generatePromotionPreview(inputOverride?: string, options: { silent?: boolean } = {}) {
+    const targetInput = (inputOverride || promotionInput).trim();
+    if (!targetInput) {
+      if (!options.silent) toast.error("Cole o link do produto.");
+      return null;
+    }
+    if (inputOverride) setPromotionInput(inputOverride);
     setPromotionLoading(true);
     setPromotionItem(null);
     setPromotionDataWarning("");
@@ -1352,7 +1386,7 @@ export default function Dashboard() {
       const response = await fetch("/api/products", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input: promotionInput.trim(), cookies: mlSessionCookies }),
+        body: JSON.stringify({ input: targetInput, cookies: mlSessionCookies }),
       });
       const result = await response.json() as { products?: ProductRecord[]; error?: string };
       if (!response.ok || !result.products?.length) throw new Error(result.error || "O produto não pôde ser identificado.");
@@ -1373,7 +1407,7 @@ export default function Dashboard() {
           const collectorResponse = await fetch(`${localCollectorUrl.replace(/\/$/, "")}/scrape`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "X-Promozap-Local-Token": collectorToken },
-            body: JSON.stringify({ input: record.resolvedUrl || promotionInput.trim() }),
+            body: JSON.stringify({ input: record.resolvedUrl || targetInput }),
           });
           const collectorResult = await collectorResponse.json() as { ok?: boolean; product?: LocalCollectorProduct; error?: string };
           if (!collectorResponse.ok || !collectorResult.product?.ok) throw new Error(collectorResult.product?.userActionMessage || collectorResult.error || "O coletor não retornou os dados completos.");
@@ -1408,10 +1442,13 @@ export default function Dashboard() {
       setPromotionRecordId(record.id);
       setPromotionItem(item);
       setPromotionIncludeImage(Boolean(item.imageUrl));
-      setPromotionMessage(composeOfferMessage(item, item.url || record.sourceUrl, record.store));
-      toast.success("Promoção pronta para revisar e enviar.");
+      const message = composeOfferMessage(item, item.url || record.sourceUrl, record.store);
+      setPromotionMessage(message);
+      if (!options.silent) toast.success("Promoção pronta para revisar e enviar.");
+      return { item, record, store: record.store, message };
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : "Não foi possível gerar a promoção.");
+      if (!options.silent) toast.error(caught instanceof Error ? caught.message : "Não foi possível gerar a promoção.");
+      return null;
     } finally {
       setPromotionLoading(false);
     }
@@ -1524,6 +1561,81 @@ export default function Dashboard() {
       setLocalCollectorConnected(false);
     } finally {
       setMonitoringLoading(false);
+    }
+  }
+
+  function affiliateHubCooldowns() {
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem("promozap.affiliateHub.sent.v1") || "{}") as Record<string, string>;
+      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+      return Object.fromEntries(Object.entries(parsed).filter(([, sentAt]) => Date.parse(sentAt) > cutoff));
+    } catch {
+      return {} as Record<string, string>;
+    }
+  }
+
+  async function scanAffiliateHub(sendAutomatically = false) {
+    if (affiliateHubRunning.current) return;
+    affiliateHubRunning.current = true;
+    setAffiliateHubLoading(true);
+    setAffiliateHubError("");
+    try {
+      let collectorToken = localCollectorToken.trim();
+      if (!collectorToken) {
+        const sessionResponse = await fetch(`${localCollectorUrl.replace(/\/$/, "")}/session`, { cache: "no-store" });
+        const session = await sessionResponse.json() as { ok?: boolean; token?: string; error?: string };
+        if (!sessionResponse.ok || !session.ok || !session.token) throw new Error(session.error || "Abra o coletor local para pesquisar o Hub de Afiliados.");
+        collectorToken = session.token;
+        setLocalCollectorToken(collectorToken);
+        window.localStorage.setItem("promozap.localCollectorToken", collectorToken);
+      }
+      const response = await fetch(`${localCollectorUrl.replace(/\/$/, "")}/scan-affiliate-hub`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Promozap-Local-Token": collectorToken },
+        body: "{}",
+      });
+      const data = await response.json() as { ok?: boolean; products?: AffiliateHubOffer[]; capturedAt?: string; changes?: { baselineCreated?: boolean; newCount?: number }; error?: string };
+      if (!response.ok || !data.ok) throw new Error(data.error || "O coletor não conseguiu ler o Hub de Afiliados.");
+      const products = data.products || [];
+      setAffiliateHubOffers(products);
+      setAffiliateHubLastScan(data.capturedAt || new Date().toISOString());
+      setLocalCollectorConnected(true);
+      if (data.changes?.newCount) toast.success(`${data.changes.newCount} nova(s) oferta(s) apareceram no Hub.`);
+
+      if (sendAutomatically) {
+        if (!affiliateHubDestination) throw new Error("Escolha o grupo que receberá as ofertas automáticas.");
+        if (!whatsapp.instanceToken.trim()) throw new Error("Configure o token da UAZAPI antes de ativar o envio automático.");
+        const sent = affiliateHubCooldowns();
+        const selected = products.find((offer) => !sent[offer.itemId || offer.id || offer.url || ""]);
+        if (!selected?.url) return;
+        const prepared = await generatePromotionPreview(selected.url, { silent: true });
+        if (!prepared) throw new Error("A melhor oferta foi encontrada, mas não foi possível preparar a mensagem.");
+        if (prepared.store === "mercadolivre" && !isMercadoLivreShortAffiliateUrl(prepared.item.url)) {
+          throw new Error("A oferta foi encontrada, mas o Mercado Livre não devolveu um link curto meli.la. Nada foi enviado.");
+        }
+        const sendResponse = await fetch("/api/offers/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Promozap-Admin-Token": whatsapp.instanceToken.trim() },
+          body: JSON.stringify({ destinationJid: affiliateHubDestination, text: prepared.message, imageUrl: prepared.item.imageUrl, includeImage: Boolean(prepared.item.imageUrl), productId: prepared.item.itemId || prepared.item.id }),
+        });
+        const sendResult = await sendResponse.json() as { error?: string };
+        if (!sendResponse.ok) throw new Error(sendResult.error || "A UAZAPI recusou o envio automático.");
+        const key = selected.itemId || selected.id || selected.url;
+        const nextSent = { ...sent, [key]: new Date().toISOString() };
+        window.localStorage.setItem("promozap.affiliateHub.sent.v1", JSON.stringify(nextSent));
+        setAffiliateHubSentRevision((value) => value + 1);
+        if (prepared.record.id) {
+          await fetch("/api/products", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: prepared.record.id, status: "sent", destinationGroup: affiliateHubDestination }) }).catch(() => undefined);
+        }
+        toast.success(`Oferta automática enviada: ${selected.title}`);
+        void loadLogs();
+      }
+    } catch (caught) {
+      setAffiliateHubError(caught instanceof Error ? caught.message : "Não foi possível pesquisar o Hub de Afiliados.");
+      setLocalCollectorConnected(false);
+    } finally {
+      setAffiliateHubLoading(false);
+      affiliateHubRunning.current = false;
     }
   }
 
@@ -1692,6 +1804,13 @@ export default function Dashboard() {
     const timer = window.setInterval(() => void scanMonitoredDeals(), Math.max(1, Number(monitoringIntervalMinutes)) * 60_000);
     return () => window.clearInterval(timer);
   }, [monitoringActive, monitoringIntervalMinutes, monitoringCategory, monitoringMinDiscount, monitoringCouponsOnly, localCollectorUrl, localCollectorToken]);
+
+  useEffect(() => {
+    if (!affiliateHubAutoSend) return;
+    void scanAffiliateHub(true);
+    const timer = window.setInterval(() => void scanAffiliateHub(true), Math.max(1, Number(affiliateHubInterval) || 5) * 60_000);
+    return () => window.clearInterval(timer);
+  }, [affiliateHubAutoSend, affiliateHubInterval, affiliateHubDestination, localCollectorUrl, localCollectorToken, whatsapp.instanceToken]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1941,6 +2060,33 @@ export default function Dashboard() {
                     <p className="mt-3 text-xs leading-5 text-[#829389]">A imagem usada será a imagem oficial encontrada na loja. No Mercado Livre, o coletor local completa preço, preço anterior, cupom, frete, parcelas e estoque. O texto segue o modelo salvo em “Layout das mensagens”.</p>
                     {promotionDataWarning ? <div className="mt-4 flex items-start gap-3 rounded-xl border border-[#d69e35] bg-[#2a210d] p-3 text-sm leading-6 text-[#f4d277]"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{promotionDataWarning}</span></div> : null}
                     {promotionAffiliateError ? <div className="mt-4 flex items-start gap-3 rounded-xl border border-[#d45b5b] bg-[#2b1111] p-3 text-sm leading-6 text-[#ffaaaa]"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{promotionAffiliateError}</span></div> : null}
+                  </CardContent>
+                </Card>
+
+                <Card className="overflow-hidden border-[#26372d] bg-[#09100c] shadow-none">
+                  <CardHeader className="border-b border-[#213028]">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div><CardTitle className="flex items-center gap-2 text-xl"><Radar className="size-5 text-[#30dd6b]" /> Radar do Hub de Afiliados</CardTitle><CardDescription className="mt-2 max-w-3xl">Abre o Hub no Chrome do coletor, rola a página até carregar as recomendações e organiza as ofertas por desconto, comissão e procura. Cada produto enviado entra em cooldown por 24 horas.</CardDescription></div>
+                      <Badge className={affiliateHubAutoSend ? "bg-[#183524] text-[#77eda0]" : "bg-[#1a241e] text-[#9cad9f]"}>{affiliateHubAutoSend ? "● Envio automático ativo" : "○ Somente pesquisa"}</Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-5 pt-5">
+                    <div className="grid gap-3 lg:grid-cols-[minmax(220px,1fr)_180px_220px_auto]">
+                      <label className="space-y-2 text-sm font-bold">Grupo das ofertas<NativeSelect value={affiliateHubDestination} onChange={(event) => setAffiliateHubDestination(event.target.value)} className="h-11 w-full border-[#35483d] bg-[#050806]"><NativeSelectOption value="">Escolher grupo</NativeSelectOption>{destinationGroups.map((group) => <NativeSelectOption key={group.JID} value={group.JID}>{group.Name}</NativeSelectOption>)}</NativeSelect></label>
+                      <label className="space-y-2 text-sm font-bold">Enviar a cada<NativeSelect value={affiliateHubInterval} onChange={(event) => setAffiliateHubInterval(event.target.value)} className="h-11 w-full border-[#35483d] bg-[#050806]"><NativeSelectOption value="5">5 minutos</NativeSelectOption><NativeSelectOption value="10">10 minutos</NativeSelectOption><NativeSelectOption value="15">15 minutos</NativeSelectOption><NativeSelectOption value="30">30 minutos</NativeSelectOption><NativeSelectOption value="60">1 hora</NativeSelectOption></NativeSelect></label>
+                      <div className="flex items-center justify-between self-end rounded-xl border border-[#35483d] bg-[#050806] px-4 py-3"><div><p className="text-sm font-bold">Enviar automático</p><p className="mt-1 text-xs text-[#829389]">Uma oferta elegível por ciclo</p></div><Switch checked={affiliateHubAutoSend} onCheckedChange={(checked) => { if (checked && !affiliateHubDestination) return toast.error("Escolha primeiro o grupo das ofertas."); setAffiliateHubAutoSend(checked); }} /></div>
+                      <Button onClick={() => void scanAffiliateHub(false)} disabled={affiliateHubLoading} className="h-11 self-end rounded-xl bg-[#30dd6b] font-black text-[#04140a] hover:bg-[#55ec82]">{affiliateHubLoading ? <LoaderCircle className="animate-spin" /> : <Search />} {affiliateHubLoading ? "Lendo o Hub..." : "Pesquisar agora"}</Button>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3 text-xs text-[#829389]"><span>Fonte: mercadolivre.com.br/afiliados/hub</span><span>•</span><span>Atualização automática: {affiliateHubInterval} min</span><span>•</span><span>Repetição bloqueada por 24h</span>{affiliateHubLastScan ? <><span>•</span><span>Última leitura: {new Date(affiliateHubLastScan).toLocaleString("pt-BR")}</span></> : null}</div>
+                    {affiliateHubError ? <div className="flex items-start gap-3 rounded-xl border border-[#d69e35] bg-[#2a210d] p-3 text-sm leading-6 text-[#f4d277]"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{affiliateHubError}</span></div> : null}
+                    {affiliateHubOffers.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{affiliateHubOffers.slice(0, 12).map((offer) => {
+                      const cooldownKey = offer.itemId || offer.id || offer.url || "";
+                      const sentAt = affiliateHubCooldowns()[cooldownKey];
+                      return <div key={`${cooldownKey}-${affiliateHubSentRevision}`} className="overflow-hidden rounded-2xl border border-[#26372d] bg-[#050806]">
+                        <div className="aspect-[4/3] bg-white p-3">{offer.imageUrl ? <img src={offer.imageUrl} alt={offer.title} className="h-full w-full object-contain" /> : <div className="grid h-full place-items-center text-[#708078]"><ShoppingBag className="size-10" /></div>}</div>
+                        <div className="space-y-3 p-4"><div className="flex flex-wrap gap-1.5">{offer.isNew ? <Badge className="bg-[#30dd6b] text-[#04140a]">NOVA</Badge> : null}{offer.discountPercentage ? <Badge className="bg-[#ffe04b] text-[#251f00]">-{offer.discountPercentage}%</Badge> : null}{offer.affiliateEarningsPercentage ? <Badge className="bg-[#173a28] text-[#8df3aa]">Ganhos {offer.affiliateEarningsPercentage}%</Badge> : null}{offer.coupon ? <Badge className="bg-[#3a2154] text-[#dcb6ff]">Cupom</Badge> : null}</div><h3 className="line-clamp-3 min-h-[3.75rem] text-sm font-bold leading-5">{offer.title}</h3><div>{offer.originalPrice && offer.originalPrice > (offer.price || 0) ? <p className="text-xs text-[#829389] line-through">{formatMoney(offer.originalPrice)}</p> : null}<p className="text-xl font-black text-[#62ef8b]">{formatMoney(offer.price)}</p></div><p className="line-clamp-2 text-xs text-[#829389]">{[offer.badge, offer.soldText, offer.rating ? `Nota ${offer.rating}` : null].filter(Boolean).join(" · ") || "Recomendação do Hub"}</p>{sentAt ? <p className="rounded-lg bg-[#251f12] px-2 py-1.5 text-xs font-bold text-[#f1d478]">Cooldown até {new Date(Date.parse(sentAt) + 86400000).toLocaleString("pt-BR")}</p> : null}<Button onClick={() => void generatePromotionPreview(offer.url || "")} disabled={!offer.url || promotionLoading} className="h-9 w-full bg-[#18231c] text-[#8df3aa] hover:bg-[#223328]"><Sparkles /> Preparar oferta</Button></div>
+                      </div>;
+                    })}</div> : <div className="rounded-2xl border border-dashed border-[#34483c] px-6 py-8 text-center"><Radar className="mx-auto mb-2 size-8 text-[#4e6958]" /><p className="font-bold">Nenhuma leitura feita ainda</p><p className="mt-1 text-sm text-[#829389]">Clique em “Pesquisar agora”. Na primeira vez, entre no Mercado Livre na janela aberta pelo coletor.</p></div>}
                   </CardContent>
                 </Card>
 

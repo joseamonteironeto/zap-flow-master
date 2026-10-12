@@ -25,21 +25,35 @@ export type GeneratedLink = {
 
 export function findMercadoLivreShortUrl(item?: GeneratedLink | null) {
   if (!item) return "";
-  const candidates = [item.short_url, item.shortUrl, item.text, item.url];
-  for (const candidate of candidates) {
-    if (typeof candidate !== "string") continue;
-    const match = candidate.match(/(?:https?:\/\/)?(?:www\.)?meli\.la\/[a-z0-9_-]+/i);
-    if (!match) continue;
-    const normalized = match[0].startsWith("http") ? match[0] : `https://${match[0]}`;
-    try {
-      const url = new URL(normalized);
-      if (url.hostname.toLowerCase().replace(/^www\./, "") === "meli.la") return `https://meli.la${url.pathname}`;
-    } catch {
-      // Tenta o próximo campo retornado pelo gerador.
+  const visited = new Set<unknown>();
+  const find = (value: unknown, depth: number): string => {
+    if (depth > 4 || value == null || visited.has(value)) return "";
+    if (typeof value === "string") {
+      const match = value.match(/(?:https?:\/\/)?(?:www\.)?meli\.la\/[a-z0-9_-]+/i);
+      if (!match) return "";
+      const normalized = match[0].startsWith("http") ? match[0] : `https://${match[0]}`;
+      try {
+        const url = new URL(normalized);
+        return url.hostname.toLowerCase().replace(/^www\./, "") === "meli.la" ? `https://meli.la${url.pathname}` : "";
+      } catch {
+        return "";
+      }
     }
-  }
-  if (typeof item.id === "string" && /^[a-z0-9_-]{4,40}$/i.test(item.id)) return `https://meli.la/${item.id}`;
-  return "";
+    if (typeof value !== "object") return "";
+    visited.add(value);
+    const record = value as Record<string, unknown>;
+    for (const [key, candidate] of Object.entries(record)) {
+      if (/^(?:id|short_id|shortId)$/i.test(key) && typeof candidate === "string" && /^[a-z0-9_-]{4,40}$/i.test(candidate)) {
+        return `https://meli.la/${candidate}`;
+      }
+    }
+    for (const candidate of Object.values(record)) {
+      const found = find(candidate, depth + 1);
+      if (found) return found;
+    }
+    return "";
+  };
+  return find(item, 0);
 }
 
 export function parseMercadoLivreCookies(value: unknown) {

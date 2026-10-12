@@ -475,6 +475,99 @@ let scrapeQueue = Promise.resolve();
 let activeDealsRun = null;
 const dealsCache = new Map();
 
+const affiliateHubExtractor = `(() => {
+  const money = (value) => {
+    if (!value) return null;
+    const match = String(value).match(/R\\$\\s*([\\d.]+(?:,\\d{1,2})?)/i);
+    return match ? Number(match[1].replace(/\\./g, '').replace(',', '.')) : null;
+  };
+  const clean = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
+  const links = [...document.querySelectorAll('a[href]')].filter((link) => {
+    const href = link.href || '';
+    return /mercadolivre\\.com\\.br\\/(?:[^?#]+\\/)*(?:p|up)\\/MLBU?\\d+/i.test(href)
+      || /[?&](?:wid|item_id)=MLB-?\\d+/i.test(href)
+      || /item_id(?:%3A|:)MLB-?\\d+/i.test(href);
+  });
+  const seen = new Set();
+  const products = [];
+  for (const link of links) {
+    const href = link.href.split('#')[0];
+    const itemMatch = href.match(/[?&](?:wid|item_id)=MLB-?(\\d+)/i)
+      || decodeURIComponent(href).match(/item_id:MLB-?(\\d+)/i)
+      || href.match(/\\/(?:p|up)\\/(MLBU?\\d+)/i);
+    const itemId = itemMatch ? (String(itemMatch[1]).startsWith('MLB') ? itemMatch[1] : 'MLB' + itemMatch[1]) : href;
+    if (seen.has(itemId)) continue;
+    let card = link.closest('li, article, [class*="card"], [class*="item"]');
+    if (!card || clean(card.innerText).length < 30) card = link.parentElement?.parentElement?.parentElement || link.parentElement;
+    const text = clean(card?.innerText || link.innerText);
+    if (!text || !/R\\$|GANHOS|vendidos|Classifica/i.test(text)) continue;
+    const image = card?.querySelector('img');
+    const heading = card?.querySelector('h1,h2,h3,h4,[class*="title"]');
+    const title = clean(heading?.textContent || link.getAttribute('aria-label') || link.textContent).replace(/^Ir para /i, '');
+    const prices = [...text.matchAll(/R\\$\\s*[\\d.]+(?:,\\d{1,2})?/gi)].map((match) => money(match[0])).filter(Number.isFinite);
+    const currentLabel = text.match(/(?:Valor Agora|Agora|Por)\\s*:?[ ]*(R\\$\\s*[\\d.]+(?:,\\d{1,2})?)/i)?.[1];
+    const previousLabel = text.match(/(?:Valor Antes|Antes|De)\\s*:?[ ]*(R\\$\\s*[\\d.]+(?:,\\d{1,2})?)/i)?.[1];
+    const current = money(currentLabel) || prices.at(-1) || prices[0] || null;
+    const previous = money(previousLabel) || (prices.length > 1 ? prices[0] : null);
+    const discount = Number(text.match(/(\\d{1,2})\\s*%\\s*(?:OFF|de desconto)/i)?.[1] || 0)
+      || (previous && current && previous > current ? Math.round((1 - current / previous) * 100) : 0);
+    const earnings = Number(text.match(/GANHOS(?:\\s+EXTRAS)?\\s*(\\d+(?:[.,]\\d+)?)\\s*%/i)?.[1]?.replace(',', '.') || 0) || null;
+    const rating = Number(text.match(/Classifica(?:ção|cao)[^\\d]*([1-5](?:[.,]\\d)?)/i)?.[1]?.replace(',', '.') || 0) || null;
+    const soldText = text.match(/(?:Mais de\\s+)?[\\d.,]+\\s*(?:mil\\s+)?vendidos/i)?.[0] || null;
+    const badge = text.match(/(?:MAIS BUSCADO|MAIS VENDIDO|OFERTA IMPERD[IÍ]VEL|GANHOS EXTRAS|OFERTA DO DIA)/i)?.[0] || null;
+    products.push({ itemId, title: title || 'Oferta Mercado Livre', url: href, imageUrl: image?.currentSrc || image?.src || null,
+      price: current, effectivePrice: current, originalPrice: previous, discountPercentage: discount,
+      affiliateEarningsPercentage: earnings, rating, soldText, badge, coupon: /cupom/i.test(text) ? { available: true, text: text.match(/[^.]{0,35}cupom[^.]{0,55}/i)?.[0] || 'Cupom disponível' } : null,
+      freeShipping: /frete gr[aá]tis/i.test(text), sourceText: text });
+    seen.add(itemId);
+  }
+  return { url: location.href, title: document.title, products };
+})()`;
+
+async function scanAffiliateHub() {
+  const hubUrl = "https://www.mercadolivre.com.br/afiliados/hub";
+  const { target, client } = await createChromeTarget(hubUrl);
+  try {
+    await client.call("Page.enable");
+    await client.call("Runtime.enable");
+    await waitForPage(client, "document.readyState === 'complete'", 30000);
+    await sleep(1200);
+    const authState = await client.call("Runtime.evaluate", { expression: `(() => ({url:location.href,text:(document.body?.innerText||'').slice(0,4000)}))()`, returnByValue: true });
+    const pageState = authState?.result?.value || {};
+    if (/\/login\/|identification|authentication/i.test(pageState.url || "")) {
+      throw new Error("O Chrome do coletor ainda não está conectado ao Mercado Livre. Entre na sua conta nessa janela e pesquise novamente.");
+    }
+    let stablePasses = 0;
+    let previousCount = 0;
+    for (let pass = 0; pass < 40 && stablePasses < 4; pass += 1) {
+      const result = await client.call("Runtime.evaluate", { expression: affiliateHubExtractor, returnByValue: true });
+      const count = result?.result?.value?.products?.length || 0;
+      stablePasses = count <= previousCount ? stablePasses + 1 : 0;
+      previousCount = Math.max(previousCount, count);
+      await client.call("Runtime.evaluate", { expression: "window.scrollTo({top:document.documentElement.scrollHeight,behavior:'instant'}); true", returnByValue: true });
+      await sleep(900);
+    }
+    const evaluation = await client.call("Runtime.evaluate", { expression: affiliateHubExtractor, returnByValue: true });
+    if (evaluation?.exceptionDetails) throw new Error("Não foi possível ler os cartões do Hub de Afiliados.");
+    const raw = evaluation?.result?.value?.products || [];
+    if (!raw.length) throw new Error("Nenhuma oferta foi encontrada no Hub. Confirme se a seção ‘Produtos selecionados para você’ está visível na janela do coletor.");
+    const capturedAt = new Date().toISOString();
+    const scored = raw.map((product) => {
+      const base = scoreDeal({ ...product, capturedAt, dealOfDay: /oferta/i.test(product.badge || "") });
+      const commissionBonus = Math.min(18, Number(product.affiliateEarningsPercentage) || 0);
+      const popularityBonus = /mil vendidos/i.test(product.soldText || "") ? 6 : product.soldText ? 3 : 0;
+      return { ...base, catalogSource: "affiliate_hub", capturedAt, dealScore: Math.min(100, base.dealScore + commissionBonus + popularityBonus) };
+    });
+    recordPriceHistories(scored);
+    const changes = updateDealSnapshot("affiliate-hub", scored);
+    const products = scored.map((product) => ({ ...product, isNew: changes.newUrls.has(priceHistoryKey(product)) }))
+      .sort((a, b) => b.dealScore - a.dealScore || (b.affiliateEarningsPercentage || 0) - (a.affiliateEarningsPercentage || 0));
+    return { ok: true, source: "affiliate_hub", capturedAt, total: products.length, changes: { baselineCreated: !changes.hasBaseline, newCount: changes.newUrls.size }, products };
+  } finally {
+    await closeChromeTarget(target, client);
+  }
+}
+
 function normalizeDealsUrl(input) {
   const value = String(input || "https://www.mercadolivre.com.br/ofertas?promotion_type=deal_of_the_day").trim();
   const url = new URL(value);
@@ -948,11 +1041,12 @@ const server = createServer(async (request, response) => {
     response.end(localPanelHtml());
     return;
   }
-  if (request.url === "/health" && request.method === "GET") return respond(response, 200, { ok: true, service: "Promozap Coletor Local", version: 3 }, headers);
+  if (request.url === "/health" && request.method === "GET") return respond(response, 200, { ok: true, service: "Promozap Coletor Local", version: 4 }, headers);
   if (request.url === "/session" && request.method === "GET") return respond(response, 200, { ok: true, token: localToken }, headers);
   const isScrape = request.url === "/scrape" && request.method === "POST";
   const isDealsScan = request.url === "/scan-deals" && request.method === "POST";
-  if (!isScrape && !isDealsScan) return respond(response, 404, { error: "Rota não encontrada." }, headers);
+  const isAffiliateHubScan = request.url === "/scan-affiliate-hub" && request.method === "POST";
+  if (!isScrape && !isDealsScan && !isAffiliateHubScan) return respond(response, 404, { error: "Rota não encontrada." }, headers);
   if (request.headers["x-promozap-local-token"] !== localToken) return respond(response, 401, { error: "Token local inválido." }, headers);
 
   let raw = "";
@@ -962,10 +1056,10 @@ const server = createServer(async (request, response) => {
   }
   try {
     const body = JSON.parse(raw || "{}");
-    const task = isDealsScan ? scanDeals(body) : scrapeQueue.then(() => scrapeProduct(body.input));
-    if (!isDealsScan) scrapeQueue = task.catch(() => undefined);
+    const task = isDealsScan ? scanDeals(body) : isAffiliateHubScan ? scanAffiliateHub() : scrapeQueue.then(() => scrapeProduct(body.input));
+    if (!isDealsScan && !isAffiliateHubScan) scrapeQueue = task.catch(() => undefined);
     const result = await task;
-    if (isDealsScan) respond(response, result.ok ? 200 : 409, result, headers);
+    if (isDealsScan || isAffiliateHubScan) respond(response, result.ok ? 200 : 409, result, headers);
     else respond(response, result.ok ? 200 : 409, { ok: result.ok, product: result }, headers);
   } catch (error) {
     respond(response, 400, { ok: false, error: error instanceof Error ? error.message : "Falha na coleta." }, headers);
