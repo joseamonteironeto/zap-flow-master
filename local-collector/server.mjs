@@ -478,8 +478,8 @@ const dealsCache = new Map();
 const affiliateHubExtractor = `(() => {
   const money = (value) => {
     if (!value) return null;
-    const match = String(value).match(/R\\$\\s*([\\d.]+(?:,\\d{1,2})?)/i);
-    return match ? Number(match[1].replace(/\\./g, '').replace(',', '.')) : null;
+    const match = String(value).match(/R\\$\\s*([\\d.]+)\\s*(?:,\\s*(\\d{1,2}))?/i);
+    return match ? Number(\`\${match[1].replace(/\\./g, '')}.\${match[2] || '0'}\`) : null;
   };
   const clean = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
   const links = [...document.querySelectorAll('a[href]')].filter((link) => {
@@ -504,19 +504,24 @@ const affiliateHubExtractor = `(() => {
     const image = card?.querySelector('img');
     const heading = card?.querySelector('h1,h2,h3,h4,[class*="title"]');
     const title = clean(heading?.textContent || link.getAttribute('aria-label') || link.textContent).replace(/^Ir para /i, '');
-    const prices = [...text.matchAll(/R\\$\\s*[\\d.]+(?:,\\d{1,2})?/gi)].map((match) => money(match[0])).filter(Number.isFinite);
-    const currentLabel = text.match(/(?:Valor Agora|Agora|Por)\\s*:?[ ]*(R\\$\\s*[\\d.]+(?:,\\d{1,2})?)/i)?.[1];
-    const previousLabel = text.match(/(?:Valor Antes|Antes|De)\\s*:?[ ]*(R\\$\\s*[\\d.]+(?:,\\d{1,2})?)/i)?.[1];
-    const current = money(currentLabel) || prices.at(-1) || prices[0] || null;
-    const previous = money(previousLabel) || (prices.length > 1 ? prices[0] : null);
-    const discount = Number(text.match(/(\\d{1,2})\\s*%\\s*(?:OFF|de desconto)/i)?.[1] || 0)
+    const priceMatches = [...text.matchAll(/R\\$\\s*[\\d.]+\\s*(?:,\\s*\\d{1,2})?/gi)]
+      .filter((match) => !/\\d+x\\s*$/i.test(text.slice(Math.max(0, match.index - 10), match.index)));
+    const prices = priceMatches.map((match) => money(match[0])).filter(Number.isFinite);
+    const discountMatch = text.match(/(\\d{1,2})\\s*%\\s*(?:OFF|de desconto)/i);
+    const priceBeforeDiscount = discountMatch
+      ? money(text.slice(0, discountMatch.index).match(/R\\$\\s*[\\d.]+\\s*(?:,\\s*\\d{1,2})?\\s*$/i)?.[0])
+      : null;
+    const discount = Number(discountMatch?.[1] || 0);
+    const current = priceBeforeDiscount || (discount && prices.length > 1 ? prices[1] : prices[0]) || null;
+    const previous = discount && prices.length > 1 && prices[0] > current ? prices[0] : null;
+    const calculatedDiscount = discount
       || (previous && current && previous > current ? Math.round((1 - current / previous) * 100) : 0);
     const earnings = Number(text.match(/GANHOS(?:\\s+EXTRAS)?\\s*(\\d+(?:[.,]\\d+)?)\\s*%/i)?.[1]?.replace(',', '.') || 0) || null;
     const rating = Number(text.match(/Classifica(?:ção|cao)[^\\d]*([1-5](?:[.,]\\d)?)/i)?.[1]?.replace(',', '.') || 0) || null;
     const soldText = text.match(/(?:Mais de\\s+)?[\\d.,]+\\s*(?:mil\\s+)?vendidos/i)?.[0] || null;
     const badge = text.match(/(?:MAIS BUSCADO|MAIS VENDIDO|OFERTA IMPERD[IÍ]VEL|GANHOS EXTRAS|OFERTA DO DIA)/i)?.[0] || null;
     products.push({ itemId, title: title || 'Oferta Mercado Livre', url: href, imageUrl: image?.currentSrc || image?.src || null,
-      price: current, effectivePrice: current, originalPrice: previous, discountPercentage: discount,
+      price: current, effectivePrice: current, originalPrice: previous, discountPercentage: calculatedDiscount,
       affiliateEarningsPercentage: earnings, rating, soldText, badge, coupon: /cupom/i.test(text) ? { available: true, text: text.match(/[^.]{0,35}cupom[^.]{0,55}/i)?.[0] || 'Cupom disponível' } : null,
       freeShipping: /frete gr[aá]tis/i.test(text), sourceText: text });
     seen.add(itemId);
