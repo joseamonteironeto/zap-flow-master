@@ -1289,11 +1289,20 @@ export default function Dashboard() {
       const record = result.products[0];
       if (record.store !== "amazon" && record.store !== "mercadolivre") throw new Error("Use um link da Amazon ou do Mercado Livre.");
       let item = promotionItemFromRecord(record);
-      if (record.store === "mercadolivre" && localCollectorToken.trim()) {
+      if (record.store === "mercadolivre") {
         try {
+          let collectorToken = localCollectorToken.trim();
+          if (!collectorToken) {
+            const sessionResponse = await fetch(`${localCollectorUrl.replace(/\/$/, "")}/session`, { cache: "no-store" });
+            const session = await sessionResponse.json() as { ok?: boolean; token?: string; error?: string };
+            if (!sessionResponse.ok || !session.ok || !session.token) throw new Error(session.error || "O coletor local não está aberto.");
+            collectorToken = session.token;
+            setLocalCollectorToken(collectorToken);
+            window.localStorage.setItem("promozap.localCollectorToken", collectorToken);
+          }
           const collectorResponse = await fetch(`${localCollectorUrl.replace(/\/$/, "")}/scrape`, {
             method: "POST",
-            headers: { "Content-Type": "application/json", "X-Promozap-Local-Token": localCollectorToken.trim() },
+            headers: { "Content-Type": "application/json", "X-Promozap-Local-Token": collectorToken },
             body: JSON.stringify({ input: record.resolvedUrl || promotionInput.trim() }),
           });
           const collectorResult = await collectorResponse.json() as { ok?: boolean; product?: LocalCollectorProduct; error?: string };
@@ -1310,10 +1319,9 @@ export default function Dashboard() {
           setLocalCollectorResult(collectorResult.product);
         } catch (collectorError) {
           setLocalCollectorConnected(false);
-          setPromotionDataWarning(collectorError instanceof Error ? collectorError.message : "O coletor local não conseguiu ler os preços.");
+          const reason = collectorError instanceof Error ? collectorError.message : "O coletor local não conseguiu ler os preços.";
+          setPromotionDataWarning(`${reason} Abra uma vez o arquivo iniciar-coletor.cmd e clique novamente em “Gerar promoção”. Depois disso, esta tela chama o coletor automaticamente.`);
         }
-      } else if (record.store === "mercadolivre" && item.price == null) {
-        setPromotionDataWarning("A API devolveu apenas nome e foto. Ligue o coletor local em “Consultar produtos” para extrair preço, preço anterior, cupom, frete, parcelas e estoque diretamente da página.");
       }
       if (item.price == null && record.store === "amazon") {
         setPromotionDataWarning("A Amazon não expôs o preço nesta página. Para preencher preços e ofertas automaticamente, configure as credenciais da Creators API na área de consulta de produtos.");
@@ -1880,8 +1888,8 @@ export default function Dashboard() {
                   <Card className="h-fit border-[#26372d] bg-[#09100c] shadow-none">
                     <CardHeader><div className="flex items-start justify-between gap-3"><div><CardTitle className="text-lg">Preview da mensagem</CardTitle><CardDescription>O conteúdo abaixo é o que chegará ao grupo.</CardDescription></div><Badge className="bg-[#183524] text-[#77eda0]">{promotionStore === "amazon" ? "Amazon" : "Mercado Livre"}</Badge></div></CardHeader>
                     <CardContent className="space-y-4">
-                      <div className="whatsapp-preview-shell rounded-2xl bg-[#0b1410] p-3 sm:p-5" style={{ backgroundImage: "radial-gradient(circle at 20% 20%, rgba(63,115,83,.18) 0 1px, transparent 1px)", backgroundSize: "18px 18px" }}>
-                        <div className="whatsapp-preview-message mx-auto max-w-md overflow-hidden rounded-xl rounded-tl-sm bg-[#1e2a23] shadow-[0_10px_30px_rgba(0,0,0,.35)]">
+                      <div className="whatsapp-preview-shell rounded-2xl bg-[#efeae2] p-3 sm:p-5" style={{ backgroundImage: "radial-gradient(circle at 20% 20%, rgba(75,94,82,.12) 0 1px, transparent 1px)", backgroundSize: "18px 18px" }}>
+                        <div className="whatsapp-preview-message mx-auto max-w-md overflow-hidden rounded-xl rounded-tl-sm bg-white text-[#111b21] shadow-[0_10px_30px_rgba(45,55,50,.18)]">
                           {promotionIncludeImage && promotionItem.imageUrl ? <div className="bg-white p-2"><img src={promotionItem.imageUrl} alt="Foto da promoção" className="aspect-[4/3] w-full object-contain" /></div> : null}
                           <div className="p-3"><WhatsAppMessage text={promotionMessage} /><p className="mt-1 text-right text-[11px] text-[#9aaba1]">agora ✓✓</p></div>
                         </div>

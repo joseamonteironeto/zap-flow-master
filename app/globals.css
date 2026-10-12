@@ -205,8 +205,7 @@ button, input, select { font: inherit; }
 .product-detail-modal textarea,
 .product-detail-modal select { background: #fff !important; border-color: #cfd9e0 !important; color: #243447 !important; }
 
-/* A área de geração acompanha o tema do painel. O preview do WhatsApp continua
-   escuro de propósito para representar fielmente a mensagem enviada. */
+/* A área de geração acompanha o tema do painel e o preview simula o WhatsApp claro. */
 .promozap-light .promotion-builder [class~="bg-[#09100c]"],
 .promozap-light .promotion-builder [class~="bg-[#050806]"],
 .promozap-light .promotion-builder [class~="bg-[#0d1711]"],
@@ -224,6 +223,10 @@ button, input, select { font: inherit; }
 .promozap-light .promotion-builder input,
 .promozap-light .promotion-builder textarea { background-color: #ffffff !important; border-color: #ccd9d1 !important; color: #17221b !important; }
 .promozap-light .promotion-builder [data-slot="card"] { box-shadow: 0 10px 32px rgb(30 62 43 / 8%); }
-.promozap-light .promotion-builder .whatsapp-preview-shell { background-color: #0b1410 !important; }
-.promozap-light .promotion-builder .whatsapp-preview-message { background-color: #1e2a23 !important; color: #eef5f0 !important; }
-.promozap-light .promotion-builder .whatsapp-preview-message [class~="text-[#9aaba1]"] { color: #9aaba1 !important; }
+.promotion-builder .whatsapp-preview-shell { background-color: #efeae2 !important; }
+.promotion-builder .whatsapp-preview-message { background-color: #ffffff !important; color: #111b21 !important; }
+.promotion-builder .whatsapp-preview-message [class~="text-[#eef5f0]"],
+.promotion-builder .whatsapp-preview-message [class~="text-white"] { color: #111b21 !important; }
+.promotion-builder .whatsapp-preview-message [class~="text-[#53bdeb]"] { color: #008069 !important; }
+.promotion-builder .whatsapp-preview-message [class~="text-[#9aaba1]"],
+.promotion-builder .whatsapp-preview-message [class~="text-[#9caaa1]"] { color: #667781 !important; }

@@ -259,10 +259,14 @@ const extractor = String.raw`(() => {
   const pageText = document.body?.innerText || '';
   const priceContainer = document.querySelector('.ui-pdp-container__row--price, .ui-pdp-price');
   const priceText = priceContainer?.textContent || '';
-  const originalPrice = money(text('.ui-pdp-price__original-value')) || trackedPricing.original_price || trackedProduct.original_price || null;
-  const pixPrice = money(text('.ui-pdp-price__price-breakdown-inline .andes-money-amount')) || money(productJson?.offers?.price);
+  let originalPrice = money(text('.ui-pdp-price__original-value')) || trackedPricing.original_price || trackedProduct.original_price || null;
+  let pixPrice = money(text('.ui-pdp-price__price-breakdown-inline .andes-money-amount')) || money(productJson?.offers?.price);
   const subtitlePrices = allText('[class*="pricing_price_subtitle"] .andes-money-amount').map(money).filter((value) => value != null);
   const standardPrice = subtitlePrices[0] || money(priceText.match(/ou\s*(R\$\s*[\d.,]+)/i)?.[1]) || trackedPricing.actual_price || trackedProduct.price || null;
+  if (pixPrice && standardPrice && pixPrice > standardPrice * 5) {
+    const normalized = [pixPrice / 10, pixPrice / 100].find((candidate) => Math.abs(candidate - standardPrice) / standardPrice < 0.08);
+    if (normalized) pixPrice = Math.round(normalized * 100) / 100;
+  }
   const installmentAmount = subtitlePrices[1] || money(priceText.match(/\d+x\s*(R\$\s*[\d.,]+)/i)?.[1]) || null;
   const promotionTexts = (trackedPricing.promotions || []).map((item) => item?.payment_method || item?.text).filter(Boolean);
   const couponCondition = promotionTexts.find((value) => /cupom|ganhe\s+R\$/i.test(value)) || null;
@@ -278,6 +282,9 @@ const extractor = String.raw`(() => {
   const couponCode = pageText.match(/(?:cupom|código)\s*[:\-]?\s*([A-Z0-9]{4,20})/i)?.[1] || null;
   const discountText = text('.andes-money-amount__discount') || priceContainer?.textContent?.match(/\d+%\s*OFF/i)?.[0] || null;
   const discountPercentage = number(discountText);
+  if (!originalPrice && standardPrice && discountPercentage > 0 && discountPercentage < 90) {
+    originalPrice = Math.round((standardPrice / (1 - discountPercentage / 100)) * 100) / 100;
+  }
   const headerTop = text('.ui-pdp-header__subtitle, .ui-pdp-header__subtitle-container') || '';
   const soldText = headerTop.match(/(?:\+|mais de\s+)?[\d.,]+\s*(?:mil\s+)?vendidos?/i)?.[0] || null;
   const condition = headerTop.split('|')[0]?.trim() || null;
@@ -941,7 +948,8 @@ const server = createServer(async (request, response) => {
     response.end(localPanelHtml());
     return;
   }
-  if (request.url === "/health" && request.method === "GET") return respond(response, 200, { ok: true, service: "Promozap Coletor Local", version: 2 }, headers);
+  if (request.url === "/health" && request.method === "GET") return respond(response, 200, { ok: true, service: "Promozap Coletor Local", version: 3 }, headers);
+  if (request.url === "/session" && request.method === "GET") return respond(response, 200, { ok: true, token: localToken }, headers);
   const isScrape = request.url === "/scrape" && request.method === "POST";
   const isDealsScan = request.url === "/scan-deals" && request.method === "POST";
   if (!isScrape && !isDealsScan) return respond(response, 404, { error: "Rota não encontrada." }, headers);
