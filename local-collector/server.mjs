@@ -542,19 +542,52 @@ async function scanAffiliateHub() {
     if (/\/login\/|identification|authentication/i.test(pageState.url || "")) {
       throw new Error("O Chrome do coletor ainda não está conectado ao Mercado Livre. Entre na sua conta nessa janela e pesquise novamente.");
     }
+    const collected = new Map();
     let stablePasses = 0;
-    let previousCount = 0;
-    for (let pass = 0; pass < 40 && stablePasses < 4; pass += 1) {
+    let previousTotal = 0;
+    let previousHeight = 0;
+    await client.call("Runtime.evaluate", { expression: "window.scrollTo({top:0,behavior:'instant'}); true", returnByValue: true });
+    await sleep(500);
+    for (let pass = 0; pass < 500 && stablePasses < 8; pass += 1) {
       const result = await client.call("Runtime.evaluate", { expression: affiliateHubExtractor, returnByValue: true });
-      const count = result?.result?.value?.products?.length || 0;
-      stablePasses = count <= previousCount ? stablePasses + 1 : 0;
-      previousCount = Math.max(previousCount, count);
-      await client.call("Runtime.evaluate", { expression: "window.scrollTo({top:document.documentElement.scrollHeight,behavior:'instant'}); true", returnByValue: true });
-      await sleep(900);
+      for (const product of result?.result?.value?.products || []) {
+        const key = product.itemId || product.url;
+        if (key) collected.set(key, { ...(collected.get(key) || {}), ...product });
+      }
+      const movement = await client.call("Runtime.evaluate", { expression: `(() => {
+        const visible = (element) => {
+          const style = getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+        };
+        const more = [...document.querySelectorAll('button,a')].find((element) =>
+          visible(element) && /^(?:ver|mostrar|carregar) mais|mais produtos|pr[oó]xim[ao]/i.test((element.innerText || element.getAttribute('aria-label') || '').trim())
+        );
+        if (more) more.click();
+        const scrollables = [...document.querySelectorAll('*')].filter((element) => {
+          const style = getComputedStyle(element);
+          return /(auto|scroll)/.test(style.overflowY) && element.scrollHeight > element.clientHeight + 300;
+        });
+        for (const element of scrollables) element.scrollTop = Math.min(element.scrollHeight, element.scrollTop + Math.max(500, element.clientHeight * .85));
+        const height = document.documentElement.scrollHeight;
+        const nextY = Math.min(height, window.scrollY + Math.max(650, window.innerHeight * .85));
+        window.scrollTo({top: nextY, behavior: 'instant'});
+        return { clickedMore: Boolean(more), height, y: nextY, atBottom: nextY + window.innerHeight >= height - 20 };
+      })()`, returnByValue: true });
+      const pageMovement = movement?.result?.value || {};
+      const grew = collected.size > previousTotal || Number(pageMovement.height || 0) > previousHeight;
+      stablePasses = pageMovement.atBottom && !grew && !pageMovement.clickedMore ? stablePasses + 1 : 0;
+      previousTotal = collected.size;
+      previousHeight = Math.max(previousHeight, Number(pageMovement.height || 0));
+      await sleep(pageMovement.clickedMore ? 1000 : 280);
     }
     const evaluation = await client.call("Runtime.evaluate", { expression: affiliateHubExtractor, returnByValue: true });
     if (evaluation?.exceptionDetails) throw new Error("Não foi possível ler os cartões do Hub de Afiliados.");
-    const raw = evaluation?.result?.value?.products || [];
+    for (const product of evaluation?.result?.value?.products || []) {
+      const key = product.itemId || product.url;
+      if (key) collected.set(key, { ...(collected.get(key) || {}), ...product });
+    }
+    const raw = [...collected.values()];
     if (!raw.length) throw new Error("Nenhuma oferta foi encontrada no Hub. Confirme se a seção ‘Produtos selecionados para você’ está visível na janela do coletor.");
     const capturedAt = new Date().toISOString();
     const scored = raw.map((product) => {
@@ -1110,7 +1143,7 @@ const server = createServer(async (request, response) => {
     response.end(localPanelHtml());
     return;
   }
-  if (request.url === "/health" && request.method === "GET") return respond(response, 200, { ok: true, service: "Promozap Coletor Local", version: 4 }, headers);
+  if (request.url === "/health" && request.method === "GET") return respond(response, 200, { ok: true, service: "Promozap Coletor Local", version: 5 }, headers);
   if (request.url === "/session" && request.method === "GET") return respond(response, 200, { ok: true, token: localToken }, headers);
   const isScrape = request.url === "/scrape" && request.method === "POST";
   const isDealsScan = request.url === "/scan-deals" && request.method === "POST";
