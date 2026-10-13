@@ -48,6 +48,8 @@ export async function POST(request: Request) {
     : [];
   const productUrl = trustedLink(clean(body.productUrl, 4000));
   const productId = clean(body.productId, 100);
+  const carouselEnabled = body.carouselEnabled !== false;
+  const carouselButtonLabel = clean(body.carouselButtonLabel, 25) || "VER OFERTA";
   if (!destinationJid || !text) return NextResponse.json({ error: "Escolha o grupo e escreva a mensagem." }, { status: 400 });
   const destination = await env.DB.prepare("SELECT jid, name FROM group_configs WHERE jid = ? AND role = 'destination' AND enabled = 1")
     .bind(destinationJid).first<{ jid: string; name: string }>();
@@ -57,7 +59,8 @@ export async function POST(request: Request) {
   const messageText = productUrl && !text.includes(productUrl)
     ? `${text}\n\n${productUrl}`.slice(0, 4096)
     : text;
-  const useCarousel = Boolean(imageUrl) && reviewCards.length > 0;
+  const useCarousel = carouselEnabled && Boolean(imageUrl) && reviewCards.length > 0;
+  const carouselButtons = productUrl ? [{ id: productUrl, text: carouselButtonLabel, type: "URL" }] : [];
   const endpoint = useCarousel ? "/send/carousel" : imageUrl ? "/send/media" : "/send/text";
   const payload = useCarousel ? {
     number: destinationJid,
@@ -65,12 +68,12 @@ export async function POST(request: Request) {
       {
         text: messageText,
         image: imageUrl,
-        buttons: productUrl ? [{ id: productUrl, text: "VER OFERTA", type: "URL" }] : [],
+        buttons: carouselButtons,
       },
       ...reviewCards.map((review) => ({
         text: review.text,
         ...(review.video ? { video: review.video } : { image: review.image }),
-        buttons: [],
+        buttons: carouselButtons,
       })),
     ],
     async: true,
