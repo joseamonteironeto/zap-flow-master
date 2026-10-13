@@ -180,7 +180,7 @@ type CatalogItem = {
   source?: "item" | "buy_box" | "best_seller" | "catalog" | "web_search";
   raw?: Record<string, unknown>;
   priceHistory?: Array<{ capturedAt: string; price: number; pixPrice?: number | null; standardPrice?: number | null; originalPrice?: number | null; couponPrice?: number | null }>;
-  reviews?: Array<{ position?: number; rating?: number | null; country?: string | null; date?: string | null; text?: string | null; images?: string[]; videos?: string[]; usefulCount?: number }>;
+  reviews?: Array<{ position?: number; rating?: number | null; country?: string | null; date?: string | null; text?: string | null; images?: string[]; videos?: string[]; media?: Array<{ type: "image" | "video"; url: string }>; usefulCount?: number }>;
   reviewsTotal?: number | null;
 };
 
@@ -277,7 +277,7 @@ type LocalCollectorProduct = {
   personalizedContext?: Record<string, unknown>;
   structuredData?: Record<string, unknown>;
   priceHistory?: Array<{ capturedAt: string; price: number; pixPrice?: number | null; standardPrice?: number | null; originalPrice?: number | null; couponPrice?: number | null }>;
-  reviews?: Array<{ position?: number; rating?: number | null; country?: string | null; date?: string | null; text?: string | null; images?: string[]; videos?: string[]; usefulCount?: number }>;
+  reviews?: Array<{ position?: number; rating?: number | null; country?: string | null; date?: string | null; text?: string | null; images?: string[]; videos?: string[]; media?: Array<{ type: "image" | "video"; url: string }>; usefulCount?: number }>;
   reviewsTotal?: number | null;
 };
 
@@ -518,6 +518,7 @@ export default function Dashboard() {
   const [templateSavedAt, setTemplateSavedAt] = useState<string | null>(null);
   const [promotionInput, setPromotionInput] = useState("");
   const [promotionItem, setPromotionItem] = useState<CatalogItem | null>(null);
+  const [promotionModalOpen, setPromotionModalOpen] = useState(false);
   const [promotionRecordId, setPromotionRecordId] = useState("");
   const [promotionStore] = useState<"amazon" | "mercadolivre">("mercadolivre");
   const [promotionMessage, setPromotionMessage] = useState("");
@@ -1243,6 +1244,7 @@ export default function Dashboard() {
     if (inputOverride) setPromotionInput(inputOverride);
     setPromotionLoading(true);
     setPromotionItem(null);
+    setPromotionModalOpen(false);
     setPromotionDataWarning("");
     setPromotionAffiliateError("");
     try {
@@ -1300,6 +1302,7 @@ export default function Dashboard() {
       }
       setPromotionRecordId(record.id);
       setPromotionItem(item);
+      setPromotionModalOpen(true);
       setPromotionIncludeImage(Boolean(item.imageUrl));
       const message = composeOfferMessage(item, item.url || record.sourceUrl, record.store);
       setPromotionMessage(message);
@@ -1335,12 +1338,23 @@ export default function Dashboard() {
     setPromotionSending(true);
     let sent = 0;
     const failures: string[] = [];
+    const reviewCards = (promotionItem.reviews || []).flatMap((review) => {
+      const firstMedia = review.media?.[0]
+        || (review.videos?.[0] ? { type: "video" as const, url: review.videos[0] } : null)
+        || (review.images?.[0] ? { type: "image" as const, url: review.images[0] } : null);
+      if (!firstMedia) return [];
+      return [{
+        text: review.text || "Avaliação publicada com mídia.",
+        imageUrl: firstMedia.type === "image" ? firstMedia.url : undefined,
+        videoUrl: firstMedia.type === "video" ? firstMedia.url : undefined,
+      }];
+    }).slice(0, 4);
     for (const destinationJid of promotionGroups) {
       try {
         const response = await fetch("/api/offers/send", {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Promozap-Admin-Token": whatsapp.instanceToken.trim() },
-          body: JSON.stringify({ destinationJid, text: promotionMessage, imageUrl: promotionItem.imageUrl, includeImage: promotionIncludeImage, productUrl: promotionItem.url, productId: promotionItem.itemId || promotionItem.id }),
+          body: JSON.stringify({ destinationJid, text: promotionMessage, imageUrl: promotionItem.imageUrl, includeImage: promotionIncludeImage, reviewCards, productUrl: promotionItem.url, productId: promotionItem.itemId || promotionItem.id }),
         });
         const result = await response.json() as { error?: string };
         if (!response.ok) throw new Error(result.error || "Falha no envio.");
@@ -1538,10 +1552,21 @@ export default function Dashboard() {
     if (!whatsapp.instanceToken.trim()) return toast.error("Informe o token da UAZAPI em Credenciais.");
     setOfferSending(true);
     try {
+      const reviewCards = (selectedCatalogItem.reviews || []).flatMap((review) => {
+        const firstMedia = review.media?.[0]
+          || (review.videos?.[0] ? { type: "video" as const, url: review.videos[0] } : null)
+          || (review.images?.[0] ? { type: "image" as const, url: review.images[0] } : null);
+        if (!firstMedia) return [];
+        return [{
+          text: review.text || "Avaliação publicada com mídia.",
+          imageUrl: firstMedia.type === "image" ? firstMedia.url : undefined,
+          videoUrl: firstMedia.type === "video" ? firstMedia.url : undefined,
+        }];
+      }).slice(0, 4);
       const response = await fetch("/api/offers/send", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Promozap-Admin-Token": whatsapp.instanceToken.trim() },
-        body: JSON.stringify({ destinationJid: offerDestination, text: offerMessage, imageUrl: selectedCatalogItem.imageUrl, includeImage: offerIncludeImage, productUrl: selectedCatalogItem.url, productId: selectedCatalogItem.itemId || selectedCatalogItem.id }),
+        body: JSON.stringify({ destinationJid: offerDestination, text: offerMessage, imageUrl: selectedCatalogItem.imageUrl, includeImage: offerIncludeImage, reviewCards, productUrl: selectedCatalogItem.url, productId: selectedCatalogItem.itemId || selectedCatalogItem.id }),
       });
       const result = await response.json() as { error?: string; destination?: string };
       if (!response.ok) throw new Error(result.error || "Não foi possível enviar a oferta.");
@@ -1890,7 +1915,10 @@ export default function Dashboard() {
                   </CardContent>
                 </Card>
 
-                {promotionItem ? <div className="grid gap-5 2xl:grid-cols-[minmax(300px,.85fr)_minmax(360px,1fr)_minmax(300px,.8fr)]">
+                {promotionItem ? <Dialog open={promotionModalOpen} onOpenChange={setPromotionModalOpen}>
+                  <DialogContent className="max-h-[94vh] overflow-y-auto border-[#26372d] bg-[#07100a] text-white sm:max-w-[min(1500px,96vw)]">
+                    <DialogHeader><DialogTitle className="pr-8 text-xl">Preparar oferta</DialogTitle><DialogDescription>Revise os dados, a mensagem e os grupos antes de enviar. Use o X para fechar esta janela.</DialogDescription></DialogHeader>
+                    <div className="grid gap-5 2xl:grid-cols-[minmax(300px,.85fr)_minmax(360px,1fr)_minmax(300px,.8fr)]">
                   <Card className="h-fit border-[#26372d] bg-[#09100c] shadow-none">
                     <CardHeader><CardTitle className="text-lg">Dados da oferta</CardTitle><CardDescription>Revise os dados extraídos antes de publicar.</CardDescription></CardHeader>
                     <CardContent className="space-y-4">
@@ -1938,11 +1966,13 @@ export default function Dashboard() {
                         {!destinationGroups.length ? <div className="rounded-xl border border-dashed border-[#34483c] p-6 text-center"><UsersRound className="mx-auto mb-2 size-8 text-[#63746a]" /><p className="text-sm font-bold">Nenhum destino configurado</p><button type="button" onClick={() => setActiveTab("groups")} className="mt-2 text-xs font-bold text-[#58e683] underline">Configurar grupos</button></div> : null}
                       </div>
                       <Button onClick={() => void sendPromotionToGroups()} disabled={promotionSending || !promotionGroups.length || !promotionMessage.trim() || !isMercadoLivreShortAffiliateUrl(promotionItem.url)} className="h-12 w-full rounded-xl bg-[#30dd6b] font-black text-[#04140a] hover:bg-[#55ec82]">{promotionSending ? <LoaderCircle className="animate-spin" /> : <Send />} {promotionSending ? "Enviando..." : `Enviar para ${promotionGroups.length || 0} grupo${promotionGroups.length === 1 ? "" : "s"}`}</Button>
-                      <p className="rounded-xl border border-[#31543b] bg-[#0b1710] p-3 text-center text-xs leading-5 text-[#9eeab3]">Envio comum do WhatsApp: foto oficial, texto do template e o link meli.la escrito na própria mensagem. Sem botão e sem carrossel.</p>
+                      <p className="rounded-xl border border-[#31543b] bg-[#0b1710] p-3 text-center text-xs leading-5 text-[#9eeab3]">Carrossel: o primeiro card leva a foto oficial, o template e a URL escrita no texto normal; os próximos usam a primeira foto ou vídeo de até 4 avaliações diferentes, cada um com o texto da própria avaliação. Sem botão e sem footer.</p>
                       <p className="text-center text-xs leading-5 text-[#829389]">O envio só é liberado depois que o Mercado Livre confirma o seu link curto meli.la.</p>
                     </CardContent>
                   </Card>
-                </div> : <div className="rounded-2xl border border-dashed border-[#34483c] bg-[#09100c] px-6 py-14 text-center"><Sparkles className="mx-auto mb-3 size-10 text-[#4e6958]" /><p className="font-bold">O preview aparecerá aqui</p><p className="mt-1 text-sm text-[#829389]">Cole um link acima para começar.</p></div>}
+                    </div>
+                  </DialogContent>
+                </Dialog> : <div className="rounded-2xl border border-dashed border-[#34483c] bg-[#09100c] px-6 py-14 text-center"><Sparkles className="mx-auto mb-3 size-10 text-[#4e6958]" /><p className="font-bold">O preview aparecerá em uma janela</p><p className="mt-1 text-sm text-[#829389]">Cole um link ou prepare uma oferta para abrir o editor.</p></div>}
               </div>
             </TabsContent>
 
