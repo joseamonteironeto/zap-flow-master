@@ -423,6 +423,15 @@ function formatMoney(value: number | null | undefined, currency = "BRL") {
   return value == null ? "Não informado" : new Intl.NumberFormat("pt-BR", { style: "currency", currency }).format(value);
 }
 
+async function retryOnce<T>(operation: () => Promise<T>, delayMs = 900) {
+  try {
+    return await operation();
+  } catch {
+    await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+    return operation();
+  }
+}
+
 function PriceHistoryPanel({ item }: { item: CatalogItem }) {
   const history = (item.priceHistory || []).filter((point) => Number.isFinite(point.price));
   const current = item.price ?? history.at(-1)?.price ?? null;
@@ -1046,13 +1055,16 @@ export default function Dashboard() {
     localStorage.setItem("promozap.localCollectorUrl", localCollectorUrl);
     localStorage.setItem("promozap.localCollectorToken", localCollectorToken);
     try {
-      const response = await fetch(`${localCollectorUrl.replace(/\/$/, "")}/scrape`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Promozap-Local-Token": localCollectorToken.trim() },
-        body: JSON.stringify({ input: localCollectorInput.trim() }),
+      const result = await retryOnce(async () => {
+        const response = await fetch(`${localCollectorUrl.replace(/\/$/, "")}/scrape`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Promozap-Local-Token": localCollectorToken.trim() },
+          body: JSON.stringify({ input: localCollectorInput.trim() }),
+        });
+        const value = await response.json() as { ok?: boolean; product?: LocalCollectorProduct; error?: string };
+        if (!response.ok || !value.product?.ok) throw new Error(value.product?.userActionMessage || value.error || "Não foi possível extrair esse produto.");
+        return value;
       });
-      const result = await response.json() as { ok?: boolean; product?: LocalCollectorProduct; error?: string };
-      if (!response.ok || !result.product?.ok) throw new Error(result.product?.userActionMessage || result.error || "Não foi possível extrair esse produto.");
       setLocalCollectorConnected(true);
       setLocalCollectorResult(result.product);
       const item = localProductToCatalog(result.product);
@@ -1265,13 +1277,16 @@ export default function Dashboard() {
     setPromotionDataWarning("");
     setPromotionAffiliateError("");
     try {
-      const response = await fetch("/api/products", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input: targetInput, cookies: mlSessionCookies }),
+      const result = await retryOnce(async () => {
+        const response = await fetch("/api/products", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ input: targetInput, cookies: mlSessionCookies }),
+        });
+        const value = await response.json() as { products?: ProductRecord[]; error?: string };
+        if (!response.ok || !value.products?.length) throw new Error(value.error || "O produto não pôde ser identificado.");
+        return value;
       });
-      const result = await response.json() as { products?: ProductRecord[]; error?: string };
-      if (!response.ok || !result.products?.length) throw new Error(result.error || "O produto não pôde ser identificado.");
       const record = result.products[0];
       if (record.store !== "mercadolivre") throw new Error("A Amazon está desativada. Use um link do Mercado Livre.");
       let item = promotionItemFromRecord(record);
@@ -1286,13 +1301,17 @@ export default function Dashboard() {
             setLocalCollectorToken(collectorToken);
             window.localStorage.setItem("promozap.localCollectorToken", collectorToken);
           }
-          const collectorResponse = await fetch(`${localCollectorUrl.replace(/\/$/, "")}/scrape`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-Promozap-Local-Token": collectorToken },
-            body: JSON.stringify({ input: record.resolvedUrl || targetInput }),
-          });
-          const collectorResult = await collectorResponse.json() as { ok?: boolean; product?: LocalCollectorProduct; error?: string };
-          if (!collectorResponse.ok || !collectorResult.product?.ok) throw new Error(collectorResult.product?.userActionMessage || collectorResult.error || "O coletor não retornou os dados completos.");
+          const scrape = async (token: string) => {
+            const collectorResponse = await fetch(`${localCollectorUrl.replace(/\/$/, "")}/scrape`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "X-Promozap-Local-Token": token },
+              body: JSON.stringify({ input: record.resolvedUrl || targetInput }),
+            });
+            const collectorResult = await collectorResponse.json() as { ok?: boolean; product?: LocalCollectorProduct; error?: string };
+            if (!collectorResponse.ok || !collectorResult.product?.ok) throw new Error(collectorResult.product?.userActionMessage || collectorResult.error || "O coletor não retornou os dados completos.");
+            return collectorResult;
+          };
+          const collectorResult = await retryOnce(() => scrape(collectorToken));
           const pageItem = localProductToCatalog(collectorResult.product);
           item = {
             ...pageItem,
@@ -2050,7 +2069,7 @@ export default function Dashboard() {
                         {!destinationGroups.length ? <div className="rounded-xl border border-dashed border-[#34483c] p-6 text-center"><UsersRound className="mx-auto mb-2 size-8 text-[#63746a]" /><p className="text-sm font-bold">Nenhum destino configurado</p><button type="button" onClick={() => setActiveTab("groups")} className="mt-2 text-xs font-bold text-[#58e683] underline">Configurar grupos</button></div> : null}
                       </div>
                       <Button onClick={() => void sendPromotionToGroups()} disabled={promotionSending || !promotionGroups.length || !promotionMessage.trim() || !isMercadoLivreShortAffiliateUrl(promotionItem.url)} className="h-12 w-full rounded-xl bg-[#30dd6b] font-black text-[#04140a] hover:bg-[#55ec82]">{promotionSending ? <LoaderCircle className="animate-spin" /> : <Send />} {promotionSending ? "Enviando..." : `Enviar para ${promotionGroups.length || 0} grupo${promotionGroups.length === 1 ? "" : "s"}`}</Button>
-                      <p className="rounded-xl border border-[#31543b] bg-[#0b1710] p-3 text-center text-xs leading-5 text-[#9eeab3]">{carouselEnabled ? `Carrossel ativado: foto oficial e mensagem no primeiro cartão, seguidas por até quatro avaliações com mídia. Todos os cartões levam o botão “${carouselButtonLabel || "VER OFERTA"}” para o mesmo link.` : "Carrossel desativado: a oferta será enviada como mensagem normal, somente com a foto oficial, o texto e o link no corpo."}</p>
+                      <p className="rounded-xl border border-[#31543b] bg-[#0b1710] p-3 text-center text-xs leading-5 text-[#9eeab3]">{carouselEnabled ? `Carrossel ativado: foto oficial e mensagem no primeiro cartão, seguidas por até quatro avaliações com mídia. Todos os cartões levam o botão “${carouselButtonLabel || "VER OFERTA"}” para o mesmo link. O link só aparece no corpo se o modelo usar {{link}}.` : "Carrossel desativado: a oferta será enviada como mensagem normal, com foto oficial e o texto exato do modelo. O link só aparece no corpo se o modelo usar {{link}}."}</p>
                       <p className="text-center text-xs leading-5 text-[#829389]">O envio só é liberado depois que o Mercado Livre confirma o seu link curto meli.la.</p>
                     </CardContent>
                   </Card>

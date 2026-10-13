@@ -56,9 +56,10 @@ export async function POST(request: Request) {
   if (!destination) return NextResponse.json({ error: "O grupo escolhido não está configurado como destino ativo." }, { status: 422 });
   const serverUrl = (runtime.UAZAPI_SERVER_URL || "").replace(/\/$/, "");
   if (!serverUrl) return NextResponse.json({ error: "Servidor UAZAPI não configurado." }, { status: 503 });
-  const messageText = productUrl && !text.includes(productUrl)
-    ? `${text}\n\n${productUrl}`.slice(0, 4096)
-    : text;
+  // O texto deve respeitar exatamente o modelo escolhido. O link continua
+  // disponível para os botões, mas só aparece no corpo quando o modelo usa
+  // {{link}} (já substituído pelo cliente antes desta chamada).
+  const messageText = text;
   const useCarousel = carouselEnabled && Boolean(imageUrl) && reviewCards.length > 0;
   const carouselButtons = productUrl ? [{ id: productUrl, text: carouselButtonLabel, type: "URL" }] : [];
   const endpoint = useCarousel ? "/send/carousel" : imageUrl ? "/send/media" : "/send/text";
@@ -76,7 +77,9 @@ export async function POST(request: Request) {
         buttons: carouselButtons,
       })),
     ],
-    async: true,
+    // O envio assíncrono da UAZAPI cria um envelope vazio antes do carrossel
+    // em alguns clientes móveis do WhatsApp. Aguardar o envio evita essa bolha.
+    async: false,
     track_source: "promozap_manual",
     track_id: productId || crypto.randomUUID(),
   } : imageUrl ? {
@@ -101,7 +104,7 @@ export async function POST(request: Request) {
       method: "POST",
       headers: { "Content-Type": "application/json", token: runtime.UAZAPI_INSTANCE_TOKEN },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(useCarousel ? 30_000 : 20_000),
     });
     const providerResponse = await response.text();
     if (!response.ok) throw new Error(`UAZAPI respondeu HTTP ${response.status}: ${providerResponse.slice(0, 240)}`);
