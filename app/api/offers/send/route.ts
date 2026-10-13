@@ -47,16 +47,22 @@ export async function POST(request: Request) {
   if (!destination) return NextResponse.json({ error: "O grupo escolhido não está configurado como destino ativo." }, { status: 422 });
   const serverUrl = (runtime.UAZAPI_SERVER_URL || "").replace(/\/$/, "");
   if (!serverUrl) return NextResponse.json({ error: "Servidor UAZAPI não configurado." }, { status: 503 });
-  const useCarousel = reviewImages.length > 0;
+  const useCarousel = Boolean(imageUrl) && reviewImages.length > 0;
   const endpoint = useCarousel ? "/send/carousel" : imageUrl ? "/send/media" : "/send/text";
   const payload = useCarousel ? {
     number: destinationJid,
-    text,
-    carousel: reviewImages.map((reviewImage, index) => ({
-      text: `Foto ${index + 1} enviada por comprador${index === 0 ? " · veja a oferta abaixo" : ""}`,
-      image: reviewImage,
-      buttons: productUrl ? [{ id: productUrl, text: "VER OFERTA", type: "URL" }] : [{ id: `foto_${index + 1}`, text: "VER FOTO", type: "REPLY" }],
-    })),
+    carousel: [
+      {
+        text,
+        image: imageUrl,
+        buttons: productUrl ? [{ id: productUrl, text: "VER OFERTA", type: "URL" }] : [],
+      },
+      ...reviewImages.map((reviewImage) => ({
+        text: "\u200B",
+        image: reviewImage,
+        buttons: [],
+      })),
+    ],
     async: true,
     track_source: "promozap_manual",
     track_id: productId || crypto.randomUUID(),
@@ -86,8 +92,8 @@ export async function POST(request: Request) {
     });
     const providerResponse = await response.text();
     if (!response.ok) throw new Error(`UAZAPI respondeu HTTP ${response.status}: ${providerResponse.slice(0, 240)}`);
-    await automationLog({ level: "success", stage: "manual_send", message: `Oferta enviada manualmente para ${destination.name || destination.jid}.`, groupJid: destination.jid, productId: productId || undefined, details: { withImage: Boolean(imageUrl), reviewCarouselImages: reviewImages.length, providerStatus: response.status } });
-    return NextResponse.json({ ok: true, destination: destination.name || destination.jid, withImage: Boolean(imageUrl), reviewCarouselImages: reviewImages.length });
+    await automationLog({ level: "success", stage: "manual_send", message: `Oferta enviada manualmente para ${destination.name || destination.jid}.`, groupJid: destination.jid, productId: productId || undefined, details: { withImage: Boolean(imageUrl), carouselCards: useCarousel ? reviewImages.length + 1 : 0, reviewCarouselImages: useCarousel ? reviewImages.length : 0, providerStatus: response.status } });
+    return NextResponse.json({ ok: true, destination: destination.name || destination.jid, withImage: Boolean(imageUrl), carouselCards: useCarousel ? reviewImages.length + 1 : 0, reviewCarouselImages: useCarousel ? reviewImages.length : 0 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Falha ao enviar a oferta.";
     await automationLog({ level: "error", stage: "manual_send", message, groupJid: destinationJid, productId: productId || undefined });
