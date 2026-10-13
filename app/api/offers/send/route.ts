@@ -36,6 +36,16 @@ export async function POST(request: Request) {
   const destinationJid = clean(body.destinationJid, 160);
   const text = clean(body.text, 4096);
   const imageUrl = body.includeImage === false ? null : trustedMercadoLivreMedia(clean(body.imageUrl, 4000));
+  const reviewCards = Array.isArray(body.reviewCards)
+    ? body.reviewCards.flatMap((value) => {
+        if (!value || typeof value !== "object") return [];
+        const record = value as Record<string, unknown>;
+        const video = trustedMercadoLivreMedia(clean(record.videoUrl, 4000));
+        const image = video ? null : trustedMercadoLivreMedia(clean(record.imageUrl, 4000));
+        if (!video && !image) return [];
+        return [{ text: clean(record.text, 1024) || "Avaliação publicada com mídia.", image, video }];
+      }).slice(0, 4)
+    : [];
   const productUrl = trustedLink(clean(body.productUrl, 4000));
   const productId = clean(body.productId, 100);
   if (!destinationJid || !text) return NextResponse.json({ error: "Escolha o grupo e escreva a mensagem." }, { status: 400 });
@@ -47,8 +57,26 @@ export async function POST(request: Request) {
   const messageText = productUrl && !text.includes(productUrl)
     ? `${text}\n\n${productUrl}`.slice(0, 4096)
     : text;
-  const endpoint = imageUrl ? "/send/media" : "/send/text";
-  const payload = imageUrl ? {
+  const useCarousel = Boolean(imageUrl) && reviewCards.length > 0;
+  const endpoint = useCarousel ? "/send/carousel" : imageUrl ? "/send/media" : "/send/text";
+  const payload = useCarousel ? {
+    number: destinationJid,
+    carousel: [
+      {
+        text: messageText,
+        image: imageUrl,
+        buttons: [],
+      },
+      ...reviewCards.map((review) => ({
+        text: review.text,
+        ...(review.video ? { video: review.video } : { image: review.image }),
+        buttons: [],
+      })),
+    ],
+    async: true,
+    track_source: "promozap_manual",
+    track_id: productId || crypto.randomUUID(),
+  } : imageUrl ? {
     number: destinationJid,
     type: "image",
     file: imageUrl,
@@ -74,8 +102,8 @@ export async function POST(request: Request) {
     });
     const providerResponse = await response.text();
     if (!response.ok) throw new Error(`UAZAPI respondeu HTTP ${response.status}: ${providerResponse.slice(0, 240)}`);
-    await automationLog({ level: "success", stage: "manual_send", message: `Oferta enviada manualmente para ${destination.name || destination.jid}.`, groupJid: destination.jid, productId: productId || undefined, details: { withImage: Boolean(imageUrl), providerStatus: response.status } });
-    return NextResponse.json({ ok: true, destination: destination.name || destination.jid, withImage: Boolean(imageUrl) });
+    await automationLog({ level: "success", stage: "manual_send", message: `Oferta enviada manualmente para ${destination.name || destination.jid}.`, groupJid: destination.jid, productId: productId || undefined, details: { withImage: Boolean(imageUrl), carouselCards: useCarousel ? reviewCards.length + 1 : 0, reviewMediaCards: useCarousel ? reviewCards.length : 0, providerStatus: response.status } });
+    return NextResponse.json({ ok: true, destination: destination.name || destination.jid, withImage: Boolean(imageUrl), carouselCards: useCarousel ? reviewCards.length + 1 : 0, reviewMediaCards: useCarousel ? reviewCards.length : 0 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Falha ao enviar a oferta.";
     await automationLog({ level: "error", stage: "manual_send", message, groupJid: destinationJid, productId: productId || undefined });
