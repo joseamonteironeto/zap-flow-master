@@ -1,5 +1,4 @@
 import { env } from "cloudflare:workers";
-import { getAmazonProductVisual } from "@/lib/amazon-product";
 import { extractUrls, resolveProductUrl } from "@/lib/link-resolver";
 import { findMercadoLivreShortUrl, generateMercadoLivreLinks } from "@/lib/mercadolivre-affiliate";
 import { getMercadoLivreProductVisual } from "@/lib/mercadolivre-product";
@@ -29,7 +28,7 @@ export type SavedProduct = {
   lastSeenAt: string;
   sentAt: string | null;
   updatedAt: string;
-  imageSource?: "amazon_catalog" | "mercadolivre_catalog" | "original" | "resolved" | null;
+  imageSource?: "mercadolivre_catalog" | "original" | "resolved" | null;
 };
 
 export function cleanText(value: unknown, max = 300) {
@@ -45,12 +44,10 @@ async function fingerprint(store: string, productCode: string | null, sourceUrl:
 async function getAffiliateSettings() {
   if (!env.DB) return null;
   return env.DB.prepare(`
-    SELECT amazon_tracking_id AS amazonTrackingId,
-      mercado_livre_label AS mercadoLivreLabel,
-      amazon_enabled AS amazonEnabled,
+    SELECT mercado_livre_label AS mercadoLivreLabel,
       mercado_livre_enabled AS mercadoLivreEnabled
     FROM affiliate_settings WHERE id = 1
-  `).first<{ amazonTrackingId: string; mercadoLivreLabel: string; amazonEnabled: number; mercadoLivreEnabled: number }>();
+  `).first<{ mercadoLivreLabel: string; mercadoLivreEnabled: number }>();
 }
 
 async function saveProduct(product: {
@@ -124,29 +121,14 @@ export async function processProductInput(input: {
     const mercadoLivreVisual = resolved.store === "mercadolivre" && resolved.productCode
       ? await getMercadoLivreProductVisual(resolved.productCode, resolved.resolvedUrl, cookies)
       : null;
-    const amazonVisual = resolved.store === "amazon" && resolved.productCode
-      ? await getAmazonProductVisual(resolved.productCode, resolved.resolvedUrl)
-      : null;
-    const productVisual = mercadoLivreVisual || amazonVisual;
+    const productVisual = mercadoLivreVisual;
     let affiliateUrl: string | null = null;
-    let status: ProductStatus = resolved.store === "unknown" ? "unsupported" : "found";
-    let errorMessage = resolved.errorMessage;
+    let status: ProductStatus = resolved.store === "unknown" || resolved.store === "amazon" ? "unsupported" : "found";
+    let errorMessage = resolved.store === "amazon"
+      ? "A Amazon está desativada nesta operação. Use somente links do Mercado Livre."
+      : resolved.errorMessage;
 
-    if (resolved.store === "amazon" && settings?.amazonEnabled && settings.amazonTrackingId) {
-      if (resolved.productCode) {
-        affiliateUrl = `https://www.amazon.com.br/dp/${resolved.productCode}?tag=${encodeURIComponent(settings.amazonTrackingId)}`;
-      } else {
-        try {
-          const tagged = new URL(resolved.resolvedUrl);
-          tagged.searchParams.set("tag", settings.amazonTrackingId);
-          affiliateUrl = tagged.toString();
-        } catch {
-          affiliateUrl = null;
-        }
-      }
-      status = "converted";
-      errorMessage = null;
-    } else if (resolved.store === "mercadolivre" && resolved.productCode && settings?.mercadoLivreEnabled && settings.mercadoLivreLabel) {
+    if (resolved.store === "mercadolivre" && resolved.productCode && settings?.mercadoLivreEnabled && settings.mercadoLivreLabel) {
       if (!cookies) {
         status = "waiting_credentials";
         errorMessage = "Informe os cookies da sessão do Mercado Livre para gerar o link.";
@@ -184,7 +166,7 @@ export async function processProductInput(input: {
       saved.push({
         ...record,
         imageSource: productVisual?.imageUrl
-          ? resolved.store === "amazon" ? "amazon_catalog" : "mercadolivre_catalog"
+          ? "mercadolivre_catalog"
           : cleanText(input.originalImageUrl, 4_000) ? "original"
           : resolved.imageUrl ? "resolved"
           : null,

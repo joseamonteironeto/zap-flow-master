@@ -1,6 +1,5 @@
 import { env } from "cloudflare:workers";
 import { NextResponse } from "next/server";
-import { searchAmazonProducts } from "@/lib/amazon-creators";
 import { searchMercadoLivreOffers } from "@/lib/mercadolivre-api";
 
 function numberParam(value: string | null) {
@@ -60,29 +59,13 @@ async function searchMercadoLivre(params: URLSearchParams) {
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const store = params.get("store") || "mercadolivre";
+  if (store !== "mercadolivre") {
+    return NextResponse.json({ error: "A Amazon está desativada. Esta operação aceita somente Mercado Livre." }, { status: 410 });
+  }
   try {
-    if (store === "amazon") {
-      if (!env.DB) return NextResponse.json({ error: "Banco de dados indisponível." }, { status: 503 });
-      const settings = await env.DB.prepare("SELECT amazon_tracking_id AS amazonTrackingId FROM affiliate_settings WHERE id = 1")
-        .first<{ amazonTrackingId: string }>();
-      if (!settings?.amazonTrackingId) return NextResponse.json({ error: "Informe primeiro seu Tracking ID da Amazon em Afiliados." }, { status: 412 });
-      const q = params.get("q")?.trim();
-      if (!q) return NextResponse.json({ error: "Na Amazon, informe uma palavra-chave para consultar o catálogo oficial." }, { status: 400 });
-      const result = await searchAmazonProducts({
-        keywords: q,
-        partnerTag: settings.amazonTrackingId,
-        searchIndex: params.get("searchIndex") || "All",
-        sortBy: params.get("sort") || undefined,
-        brand: params.get("brand") || undefined,
-        minPrice: numberParam(params.get("minPrice")),
-        maxPrice: numberParam(params.get("maxPrice")),
-      });
-      return NextResponse.json({ store: "amazon", query: q, sorts: ["Relevance", "Price:LowToHigh", "Price:HighToLow", "AvgCustomerReviews", "Featured"], ...result });
-    }
     return NextResponse.json(await searchMercadoLivre(params));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Não foi possível consultar o catálogo.";
-    const credentialsRequired = message === "AMAZON_CREDENTIALS_REQUIRED";
-    return NextResponse.json({ error: credentialsRequired ? "A Creators API da Amazon ainda não está conectada. Salve o Credential ID e o Secret quando sua conta for aprovada." : message, credentialsRequired }, { status: credentialsRequired ? 412 : 502 });
+    return NextResponse.json({ error: message }, { status: 502 });
   }
 }

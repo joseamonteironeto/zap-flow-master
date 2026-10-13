@@ -5,7 +5,7 @@ const empty = {
   amazonTrackingId: "",
   mercadoLivreLabel: "",
   redirectDomain: "",
-  amazonEnabled: true,
+  amazonEnabled: false,
   mercadoLivreEnabled: false,
 };
 
@@ -19,7 +19,8 @@ export async function GET() {
       mercado_livre_enabled AS mercadoLivreEnabled
     FROM affiliate_settings WHERE id = 1
   `).first();
-  return NextResponse.json({ settings: row ?? empty });
+  const settings = row ? { ...row, amazonTrackingId: "", amazonEnabled: false } : empty;
+  return NextResponse.json({ settings });
 }
 
 export async function PUT(request: Request) {
@@ -37,10 +38,10 @@ export async function PUT(request: Request) {
       mercado_livre_enabled = excluded.mercado_livre_enabled,
       updated_at = excluded.updated_at
   `).bind(
-    body.amazonTrackingId?.trim() ?? "",
+    "",
     body.mercadoLivreLabel?.trim() ?? "",
     body.redirectDomain?.trim() ?? "",
-    body.amazonEnabled ? 1 : 0,
+    0,
     body.mercadoLivreEnabled ? 1 : 0,
     new Date().toISOString(),
   ).run();
