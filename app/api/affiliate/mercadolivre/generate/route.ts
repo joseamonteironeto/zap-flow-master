@@ -17,7 +17,9 @@ function authorized(request: Request) {
 function validProductUrl(value: string) {
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && allowedHosts.has(url.hostname) && /\bMLB-?\d{7,}\b/i.test(url.pathname);
+    return url.protocol === "https:"
+      && allowedHosts.has(url.hostname)
+      && (/\bMLB-?\d{7,}\b/i.test(url.pathname) || /\/up\/MLBU\d{7,}(?:[/?]|$)/i.test(url.pathname));
   } catch {
     return false;
   }

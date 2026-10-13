@@ -52,6 +52,15 @@ function identify(url: URL) {
         canonicalUrl: `https://produto.mercadolivre.com.br/MLB-${itemHint[1]}`,
       };
     }
+    const userProduct = url.pathname.match(/\/up\/(MLBU\d{7,})(?:[/?]|$)/i);
+    if (userProduct) {
+      const productCode = userProduct[1].toUpperCase();
+      return {
+        store: "mercadolivre" as const,
+        productCode,
+        canonicalUrl: `${url.origin}${url.pathname}${url.search}`,
+      };
+    }
     const matched = url.pathname.match(/\bMLB-?(\d{7,})\b/i);
     if (matched) {
       const raw = matched[0].toUpperCase();

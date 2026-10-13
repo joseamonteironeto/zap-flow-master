@@ -7,7 +7,6 @@ import {
   ArrowRight,
   BadgeCheck,
   Bell,
-  Bot,
   Check,
   CircleAlert,
   Copy,
@@ -35,7 +34,6 @@ import {
   Smartphone,
   ScrollText,
   Sun,
-  Trophy,
   UsersRound,
   Webhook,
   X,
@@ -102,22 +100,6 @@ type MercadoLivreTestResult = {
     shortUrl: string;
     longUrl: string;
     created: boolean;
-  }>;
-};
-
-type AmazonTestResult = {
-  ok: boolean;
-  trackingId?: string;
-  message: string;
-  results?: Array<{
-    originUrl: string;
-    ok: boolean;
-    asin?: string | null;
-    title?: string | null;
-    resolvedUrl?: string;
-    affiliateUrl?: string;
-    redirectCount?: number;
-    message?: string;
   }>;
 };
 
@@ -300,50 +282,6 @@ type LocalCollectorProduct = {
 };
 
 type MercadoLivreCategory = { id: string; name: string };
-
-type RankedProduct = {
-  id: string;
-  position: number;
-  score: number;
-  reasons: string[];
-  title: string;
-  url?: string | null;
-  imageUrl?: string | null;
-  price?: number | null;
-  originalPrice?: number | null;
-  discountPercentage: number;
-  currency: string;
-  availableQuantity?: number | null;
-  soldQuantity?: number | null;
-  condition?: string | null;
-  categoryId?: string | null;
-  catalogProductId?: string | null;
-  officialStore?: string | null;
-  seller: { id?: string | number | null; nickname?: string | null; reputation?: string | null; powerSellerStatus?: string | null };
-  shipping: { free: boolean; full: boolean; logisticType?: string | null };
-  installments?: { quantity: number; amount?: number | null; rate?: number | null } | null;
-  attributes: Array<Record<string, unknown>>;
-  tags: string[];
-  promotionDetected: boolean;
-  bestSellerPosition?: number | null;
-  raw: Record<string, unknown>;
-};
-
-type RankingResponse = {
-  query?: string;
-  category?: { categoryId?: string | null; categoryName?: string | null; domainId?: string | null };
-  total?: number;
-  scanned?: number;
-  pagesScanned?: number;
-  pageLimit?: number;
-  truncated?: boolean;
-  medianPrice?: number;
-  averageDiscount?: number;
-  products?: RankedProduct[];
-  scoring?: string;
-  warning?: string | null;
-  error?: string;
-};
 
 type ModelContext = {
   registerTool: (tool: {
@@ -528,25 +466,16 @@ export default function Dashboard() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [demo, setDemo] = useState(false);
-  const [testUrl, setTestUrl] = useState("https://www.amazon.com.br/dp/B0D1234567");
-  const [amazonTestUrls, setAmazonTestUrls] = useState("https://www.amazon.com.br/Cabo-DisplayPort-Premium-Performance-Metros/dp/B08LY1BKFT/ref=sr_1_4");
-  const [amazonTestLoading, setAmazonTestLoading] = useState(false);
-  const [amazonTestResult, setAmazonTestResult] = useState<AmazonTestResult | null>(null);
-  const [mlTestUrls, setMlTestUrls] = useState("https://produto.mercadolivre.com.br/MLB-1010954920");
   const [mlSessionCookies, setMlSessionCookies] = useState("");
   const [mlCookiesLoaded, setMlCookiesLoaded] = useState(false);
   const [mlCookiesVisible, setMlCookiesVisible] = useState(false);
-  const [mlTestLoading, setMlTestLoading] = useState(false);
-  const [mlTestResult, setMlTestResult] = useState<MercadoLivreTestResult | null>(null);
   const [products, setProducts] = useState<ProductRecord[]>([]);
   const [productTotals, setProductTotals] = useState<Record<string, number>>({});
-  const [productInput, setProductInput] = useState("");
   const [productSearch, setProductSearch] = useState("");
   const [productStatus, setProductStatus] = useState("all");
   const [catalogStore, setCatalogStore] = useState("all");
   const [productsLoading, setProductsLoading] = useState(false);
   const [enrichingProductId, setEnrichingProductId] = useState("");
-  const [productResolving, setProductResolving] = useState(false);
   const [productsError, setProductsError] = useState("");
   const [automationLogs, setAutomationLogs] = useState<AutomationLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
@@ -627,13 +556,6 @@ export default function Dashboard() {
   const [mercadoLivreClientSecret, setMercadoLivreClientSecret] = useState("");
   const [mercadoLivreConnecting, setMercadoLivreConnecting] = useState(false);
   const [catalogCredentialsSaving, setCatalogCredentialsSaving] = useState(false);
-  const [rankingUrl, setRankingUrl] = useState("https://lista.mercadolivre.com.br/_Container_beauty-perfumes-total");
-  const [rankingMaxPages, setRankingMaxPages] = useState("5");
-  const [rankingResult, setRankingResult] = useState<RankingResponse | null>(null);
-  const [rankingLoading, setRankingLoading] = useState(false);
-  const [rankingError, setRankingError] = useState("");
-  const [rankingSearch, setRankingSearch] = useState("");
-  const [selectedRankedProduct, setSelectedRankedProduct] = useState<RankedProduct | null>(null);
 
   async function loadData() {
     setLoading(true);
@@ -825,20 +747,6 @@ export default function Dashboard() {
     { value: catalogTotal, label: "produtos encontrados", Icon: PackageSearch },
     { value: catalogSorts.length, label: "ordenações disponíveis", Icon: Settings2 },
   ];
-  const rankingProducts = rankingResult?.products || [];
-  const filteredRankingProducts = rankingProducts.filter((product) => !rankingSearch.trim() || `${product.title} ${product.id} ${product.seller.nickname || ""}`.toLowerCase().includes(rankingSearch.trim().toLowerCase()));
-  const rankingStatItems = [
-    { value: rankingResult?.scanned || 0, label: "produtos analisados", Icon: PackageSearch },
-    { value: rankingResult?.pagesScanned || 0, label: "páginas percorridas", Icon: Database },
-    { value: `${rankingResult?.averageDiscount || 0}%`, label: "desconto médio", Icon: Trophy },
-  ];
-
-  const convertedAmazonUrl = useMemo(() => {
-    const asin = testUrl.match(/\/(?:dp|gp\/product|gp\/aw\/d)\/([A-Z0-9]{10})(?:[/?]|$)/i)?.[1]?.toUpperCase();
-    if (!asin || !affiliate.amazonTrackingId) return "";
-    return `https://www.amazon.com.br/dp/${asin}?tag=${encodeURIComponent(affiliate.amazonTrackingId)}`;
-  }, [testUrl, affiliate.amazonTrackingId]);
-
   function patchConfig(jid: string, patch: Partial<GroupConfig>) {
     setConfigs((current) => ({ ...current, [jid]: { ...current[jid], ...patch } }));
   }
@@ -879,74 +787,6 @@ export default function Dashboard() {
     }
   }
 
-  async function testMercadoLivreRequest() {
-    const urls = mlTestUrls.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
-    if (!urls.length) {
-      toast.error("Cole pelo menos um link de produto.");
-      return;
-    }
-    if (!mlSessionCookies.trim()) {
-      toast.error("Cole os cookies da sessão do Mercado Livre.");
-      return;
-    }
-    setMlTestLoading(true);
-    setMlTestResult(null);
-    try {
-      const response = await fetch("/api/affiliate/mercadolivre/generate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(whatsapp.instanceToken.trim() ? { "X-Promozap-Admin-Token": whatsapp.instanceToken.trim() } : {}),
-        },
-        body: JSON.stringify({ urls, tag: affiliate.mercadoLivreLabel.trim() || "promozap", cookies: mlSessionCookies }),
-      });
-      const result = await response.json() as MercadoLivreTestResult;
-      setMlTestResult(result);
-      if (result.ok) {
-        toast.success(result.sessionRefreshed ? "Links gerados e sessão renovada automaticamente." : "Links gerados com sua sessão do Mercado Livre.");
-        if (whatsapp.instanceToken.trim()) {
-          await fetch("/api/affiliate/mercadolivre/session", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-Promozap-Admin-Token": whatsapp.instanceToken.trim() },
-            body: JSON.stringify({ cookies: mlSessionCookies }),
-          });
-        }
-      }
-      else toast.warning(result.message);
-    } catch {
-      setMlTestResult({ ok: false, message: "O painel não conseguiu concluir o teste agora." });
-      toast.error("Não foi possível executar o teste.");
-    } finally {
-      setMlTestLoading(false);
-    }
-  }
-
-  async function testAmazonRequest() {
-    const urls = amazonTestUrls.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
-    if (!urls.length) {
-      toast.error("Cole pelo menos um link da Amazon.");
-      return;
-    }
-    setAmazonTestLoading(true);
-    setAmazonTestResult(null);
-    try {
-      const response = await fetch("/api/affiliate/amazon/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ urls }),
-      });
-      const result = await response.json() as AmazonTestResult;
-      setAmazonTestResult(result);
-      if (result.ok) toast.success(result.message);
-      else toast.warning(result.message);
-    } catch {
-      setAmazonTestResult({ ok: false, message: "O painel não conseguiu concluir a conversão agora." });
-      toast.error("Não foi possível gerar os links da Amazon.");
-    } finally {
-      setAmazonTestLoading(false);
-    }
-  }
-
   async function loadProducts() {
     setProductsLoading(true);
     setProductsError("");
@@ -977,7 +817,7 @@ export default function Dashboard() {
       if (!response.ok) throw new Error(result.error || "Não foi possível carregar os logs.");
       setAutomationLogs(result.logs || []);
     } catch (caught) {
-      if (activeTab === "automation") toast.error(caught instanceof Error ? caught.message : "Não foi possível carregar os logs.");
+      if (activeTab === "logs") toast.error(caught instanceof Error ? caught.message : "Não foi possível carregar os logs.");
     } finally {
       setLogsLoading(false);
     }
@@ -1331,6 +1171,7 @@ export default function Dashboard() {
           || url.searchParams.get("item_id")?.match(/^MLB-?(\d{7,})$/i)
           || url.searchParams.get("pdp_filters")?.match(/(?:^|[|,;])item_id\s*[:=]\s*MLB-?(\d{7,})(?:$|[|,;])/i);
         if (itemHint) return `https://produto.mercadolivre.com.br/MLB-${itemHint[1]}`;
+        if (/\/up\/MLBU\d{7,}(?:[/?]|$)/i.test(url.pathname)) return `${url.origin}${url.pathname}${url.search}`;
       } catch {
         // Continua tentando as demais fontes conhecidas do produto.
       }
@@ -1354,7 +1195,7 @@ export default function Dashboard() {
     if (existingShortUrl) return existingShortUrl;
     const sourceUrl = mercadoLivreAffiliateSource(record, item);
     if (!sourceUrl) throw new Error("Não encontrei o código MLB do anúncio para gerar o link curto.");
-    if (!affiliate.mercadoLivreLabel.trim()) throw new Error("Informe sua tag de afiliado em Afiliados antes de gerar a promoção.");
+    if (!affiliate.mercadoLivreLabel.trim()) throw new Error("Informe sua tag de afiliado em Credenciais antes de gerar a promoção.");
     let localFailure = "";
     try {
       let collectorToken = localCollectorToken.trim();
@@ -1499,16 +1340,17 @@ export default function Dashboard() {
     if (promotionStore === "mercadolivre" && !isMercadoLivreShortAffiliateUrl(promotionItem.url)) return toast.error("Gere o link afiliado encurtado meli.la antes de enviar.");
     if (!promotionGroups.length) return toast.error("Escolha pelo menos um grupo de destino.");
     if (!promotionMessage.trim()) return toast.error("A mensagem está vazia.");
-    if (!whatsapp.instanceToken.trim()) return toast.error("Informe o token da UAZAPI em WhatsApp / UAZAPI.");
+    if (!whatsapp.instanceToken.trim()) return toast.error("Informe o token da UAZAPI em Credenciais.");
     setPromotionSending(true);
     let sent = 0;
     const failures: string[] = [];
+    const reviewImages = [...new Set((promotionItem.reviews || []).flatMap((review) => review.images || []))].slice(0, 5);
     for (const destinationJid of promotionGroups) {
       try {
         const response = await fetch("/api/offers/send", {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Promozap-Admin-Token": whatsapp.instanceToken.trim() },
-          body: JSON.stringify({ destinationJid, text: promotionMessage, imageUrl: promotionItem.imageUrl, includeImage: promotionIncludeImage, productId: promotionItem.itemId || promotionItem.id }),
+          body: JSON.stringify({ destinationJid, text: promotionMessage, imageUrl: promotionItem.imageUrl, includeImage: promotionIncludeImage, reviewImages, productUrl: promotionItem.url, productId: promotionItem.itemId || promotionItem.id }),
         });
         const result = await response.json() as { error?: string };
         if (!response.ok) throw new Error(result.error || "Falha no envio.");
@@ -1535,7 +1377,7 @@ export default function Dashboard() {
   async function scanMonitoredDeals() {
     if (!localCollectorToken.trim()) {
       setMonitoringActive(false);
-      setMonitoringError("Cole primeiro o token do coletor local em Consultar produtos.");
+      setMonitoringError("Cadastre primeiro o token do coletor local em Credenciais.");
       return;
     }
     setMonitoringLoading(true);
@@ -1704,13 +1546,14 @@ export default function Dashboard() {
     if (!selectedCatalogItem) return;
     if (!offerDestination) return toast.error("Escolha o grupo de destino.");
     if (!offerMessage.trim()) return toast.error("Escreva a mensagem da oferta.");
-    if (!whatsapp.instanceToken.trim()) return toast.error("Informe o token da UAZAPI em WhatsApp / UAZAPI.");
+    if (!whatsapp.instanceToken.trim()) return toast.error("Informe o token da UAZAPI em Credenciais.");
     setOfferSending(true);
     try {
+      const reviewImages = [...new Set((selectedCatalogItem.reviews || []).flatMap((review) => review.images || []))].slice(0, 5);
       const response = await fetch("/api/offers/send", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Promozap-Admin-Token": whatsapp.instanceToken.trim() },
-        body: JSON.stringify({ destinationJid: offerDestination, text: offerMessage, imageUrl: selectedCatalogItem.imageUrl, includeImage: offerIncludeImage, productId: selectedCatalogItem.itemId || selectedCatalogItem.id }),
+        body: JSON.stringify({ destinationJid: offerDestination, text: offerMessage, imageUrl: selectedCatalogItem.imageUrl, includeImage: offerIncludeImage, reviewImages, productUrl: selectedCatalogItem.url, productId: selectedCatalogItem.itemId || selectedCatalogItem.id }),
       });
       const result = await response.json() as { error?: string; destination?: string };
       if (!response.ok) throw new Error(result.error || "Não foi possível enviar a oferta.");
@@ -1721,53 +1564,6 @@ export default function Dashboard() {
       toast.error(caught instanceof Error ? caught.message : "Não foi possível enviar a oferta.");
     } finally {
       setOfferSending(false);
-    }
-  }
-
-  async function analyzeMercadoLivreListing() {
-    if (!rankingUrl.trim()) return toast.error("Cole a URL da listagem do Mercado Livre.");
-    setRankingLoading(true);
-    setRankingError("");
-    setRankingResult(null);
-    try {
-      const response = await fetch("/api/catalog/mercadolivre-ranking", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: rankingUrl.trim(), maxPages: Number(rankingMaxPages) }),
-      });
-      const result = await response.json() as RankingResponse;
-      if (!response.ok) throw new Error(result.error || "Não foi possível analisar a listagem.");
-      setRankingResult(result);
-      toast.success(`${result.scanned || 0} produto(s) analisado(s) e ranqueado(s).`);
-    } catch (caught) {
-      setRankingError(caught instanceof Error ? caught.message : "Não foi possível analisar a listagem.");
-    } finally {
-      setRankingLoading(false);
-    }
-  }
-
-  async function analyzeProductLinks() {
-    if (!productInput.trim()) {
-      toast.error("Cole uma mensagem ou um link para analisar.");
-      return;
-    }
-    setProductResolving(true);
-    try {
-      const response = await fetch("/api/products", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input: productInput, cookies: mlSessionCookies }),
-      });
-      const result = await response.json() as { products?: ProductRecord[]; error?: string };
-      if (!response.ok) throw new Error(result.error || "Não foi possível analisar o link.");
-      const converted = (result.products || []).filter((item) => item.status === "converted").length;
-      toast.success(`${result.products?.length || 0} link(s) analisado(s)${converted ? ` · ${converted} convertido(s)` : ""}.`);
-      setProductInput("");
-      await loadProducts();
-    } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : "Não foi possível analisar o link.");
-    } finally {
-      setProductResolving(false);
     }
   }
 
@@ -1813,7 +1609,7 @@ export default function Dashboard() {
   }, [activeTab, productStatus, productSearch]);
 
   useEffect(() => {
-    if (activeTab !== "automation") return;
+    if (activeTab !== "logs") return;
     void loadAutomationLogs();
     const timer = window.setInterval(() => void loadAutomationLogs(), 6_000);
     return () => window.clearInterval(timer);
@@ -1906,17 +1702,13 @@ export default function Dashboard() {
   const pageMeta = {
     groups: ["Grupos", "Organize fontes, destinos e categorias da operação."],
     generate: ["Gerar promoção", "Cole um produto, revise a mensagem e envie para seus grupos."],
-    products: ["Produtos encontrados", "Acompanhe cada link identificado, convertido e enviado."],
+    products: ["Histórico", "Acompanhe os produtos identificados, convertidos e enviados."],
     catalog: ["Dados dos produtos", "Veja tudo o que foi extraído das ofertas enviadas da Amazon e do Mercado Livre."],
     discovery: ["Consultar produtos", "Pesquise recomendações, preços e filtros nos catálogos oficiais."],
     monitoring: ["Radar de ofertas", "Monitore novas ofertas do dia e destaque quedas de preço relevantes."],
     templates: ["Layout das mensagens", "Monte o texto das ofertas com variáveis preenchidas automaticamente."],
-    ranking: ["Ranking Mercado Livre", "Analise produtos do catálogo oficial e compare automaticamente as ofertas vencedoras."],
-    affiliates: ["Afiliados", "Defina como os links encontrados serão convertidos."],
-    amazon: ["Gerador Amazon", "Cole links longos ou encurtados e gere versões limpas com seu Tracking ID."],
-    mercadolivre: ["Gerador Mercado Livre", "Gere links com sua tag e sua sessão de afiliado."],
-    automation: ["Automação", "Acompanhe o fluxo das ofertas entre os grupos."],
-    whatsapp: ["WhatsApp / UAZAPI", "Conecte a instância usada para ler e publicar nos grupos."],
+    credentials: ["Credenciais", "Centralize as integrações da UAZAPI, afiliados, APIs e coletor local."],
+    logs: ["Logs", "Acompanhe os eventos e diagnósticos da operação."],
   }[activeTab] || ["Painel Promozap", "Operação de grupos de ofertas."];
 
   return (
@@ -1932,17 +1724,13 @@ export default function Dashboard() {
               {[
                 ["generate", "Gerar promoção", Sparkles],
                 ["groups", "Grupos", UsersRound],
-                ["products", "Produtos", PackageSearch],
+                ["products", "Histórico", PackageSearch],
                 ["catalog", "Dados dos produtos", Database],
                 ["discovery", "Consultar produtos", Search],
                 ["monitoring", "Radar de ofertas", Radar],
                 ["templates", "Layout das mensagens", LayoutTemplate],
-                ["ranking", "Ranking Mercado Livre", Trophy],
-                ["affiliates", "Afiliados", Link2],
-                ["amazon", "Gerador Amazon", ShoppingBag],
-                ["mercadolivre", "Gerador ML", KeyRound],
-                ["automation", "Automação", Bot],
-                ["whatsapp", "WhatsApp / UAZAPI", Smartphone],
+                ["logs", "Logs", ScrollText],
+                ["credentials", "Credenciais", KeyRound],
               ].map(([value, label, Icon]) => (
                 <button key={String(value)} onClick={() => setActiveTab(String(value))} className={`promozap-menu-item flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left font-semibold transition-colors ${activeTab === value ? "promozap-menu-active bg-[#62ef8b] text-[#07140b] ring-1 ring-[#80f59f]/55" : "text-[#e0e8e2] hover:bg-[#18221b] hover:text-white"}`}>
                   <Icon className="size-4 shrink-0" /><span className="truncate">{label}</span>
@@ -1952,7 +1740,7 @@ export default function Dashboard() {
             <div className="border-t border-[#243029] p-3">
               <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-xl bg-[#101612] px-3 py-3">
                 <div className="min-w-0"><p className="truncate text-sm font-medium">José Augusto</p><p className="truncate text-xs text-[#62ef8b]">Operação Promozap</p></div>
-                <button onClick={() => setActiveTab("whatsapp")} aria-label="Configurar WhatsApp" className="grid size-8 place-items-center rounded-lg text-[#94a69b] hover:bg-[#1b241e] hover:text-white"><Settings2 className="size-4" /></button>
+                <button onClick={() => setActiveTab("credentials")} aria-label="Abrir credenciais" className="grid size-8 place-items-center rounded-lg text-[#94a69b] hover:bg-[#1b241e] hover:text-white"><Settings2 className="size-4" /></button>
               </div>
             </div>
           </div>
@@ -1967,7 +1755,7 @@ export default function Dashboard() {
             <div className="flex shrink-0 items-center gap-2">
               <Button variant="outline" size="icon" className="border-[#2a3730] bg-[#0d1310] text-[#94a69b] hover:bg-[#172019]" aria-label="Notificações"><Bell className="size-4" /></Button>
               <Button onClick={() => setTheme((value) => value === "dark" ? "light" : "dark")} variant="outline" size="icon" className="border-[#2a3730] bg-[#0d1310] text-[#94a69b] hover:bg-[#172019]" aria-label={theme === "dark" ? "Ativar modo claro" : "Ativar modo escuro"}>{theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}</Button>
-              <button onClick={() => setActiveTab("whatsapp")} className={`flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold ${whatsappConnected ? "border-[#2f7042] bg-[#102218] text-[#72f295]" : "border-[#3b443e] bg-[#111512] text-[#a7afa9]"}`}><span className={`size-2 rounded-full ${whatsappConnected ? "bg-[#31d365]" : "bg-[#778078]"}`} />{whatsappConnected ? "Conectado" : "Configurar"}</button>
+              <button onClick={() => setActiveTab("credentials")} className={`flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold ${whatsappConnected ? "border-[#2f7042] bg-[#102218] text-[#72f295]" : "border-[#3b443e] bg-[#111512] text-[#a7afa9]"}`}><span className={`size-2 rounded-full ${whatsappConnected ? "bg-[#31d365]" : "bg-[#778078]"}`} />{whatsappConnected ? "Conectado" : "Configurar"}</button>
             </div>
           </header>
 
@@ -1978,7 +1766,7 @@ export default function Dashboard() {
             </div>
 
           <div className="mb-6 grid grid-cols-3 overflow-hidden rounded-2xl border border-[#27322b] bg-[#0b100d] shadow-[0_18px_50px_rgba(0,0,0,.28)]">
-            {(activeTab === "generate" ? promotionStatItems : activeTab === "products" ? productStatItems : activeTab === "catalog" ? catalogStatItems : activeTab === "discovery" ? discoveryStatItems : activeTab === "ranking" ? rankingStatItems : statItems).map(({ value, label, Icon }, index) => (
+            {(activeTab === "generate" ? promotionStatItems : activeTab === "products" ? productStatItems : activeTab === "catalog" ? catalogStatItems : activeTab === "discovery" ? discoveryStatItems : statItems).map(({ value, label, Icon }, index) => (
               <div key={label} className={`px-3 py-4 sm:px-5 ${index ? "border-l border-[#27322b]" : ""}`}>
                 <Icon className="mb-2 size-4 text-[#00a947]" />
                 <p className="text-2xl font-extrabold tracking-tight">{value}</p>
@@ -1994,17 +1782,13 @@ export default function Dashboard() {
             <TabsList className="h-12 w-full justify-start overflow-x-auto rounded-xl border border-[#27322b] bg-[#0b100d] p-1 lg:hidden">
               <TabsTrigger value="generate" className="h-10 min-w-40 rounded-lg px-4">Gerar promoção</TabsTrigger>
               <TabsTrigger value="groups" className="h-10 min-w-28 rounded-lg px-4">Grupos</TabsTrigger>
-              <TabsTrigger value="products" className="h-10 min-w-28 rounded-lg px-4">Produtos</TabsTrigger>
+              <TabsTrigger value="products" className="h-10 min-w-28 rounded-lg px-4">Histórico</TabsTrigger>
               <TabsTrigger value="catalog" className="h-10 min-w-40 rounded-lg px-4">Dados dos produtos</TabsTrigger>
               <TabsTrigger value="discovery" className="h-10 min-w-40 rounded-lg px-4">Consultar produtos</TabsTrigger>
               <TabsTrigger value="monitoring" className="h-10 min-w-36 rounded-lg px-4">Radar ao vivo</TabsTrigger>
               <TabsTrigger value="templates" className="h-10 min-w-40 rounded-lg px-4">Layout das mensagens</TabsTrigger>
-              <TabsTrigger value="ranking" className="h-10 min-w-40 rounded-lg px-4 data-[state=active]:bg-[#ffe600] data-[state=active]:text-[#231f00]">Ranking ML</TabsTrigger>
-              <TabsTrigger value="affiliates" className="h-10 min-w-28 rounded-lg px-4">Afiliados</TabsTrigger>
-              <TabsTrigger value="amazon" className="h-10 min-w-36 rounded-lg px-4 data-[state=active]:bg-[#ff9900] data-[state=active]:text-[#111820]">Gerador Amazon</TabsTrigger>
-              <TabsTrigger value="mercadolivre" className="h-10 min-w-32 rounded-lg px-4 data-[state=active]:bg-[#ffe600] data-[state=active]:text-[#231f00]">Gerador ML</TabsTrigger>
-              <TabsTrigger value="automation" className="h-10 min-w-28 rounded-lg px-4">Automação</TabsTrigger>
-              <TabsTrigger value="whatsapp" className="h-10 min-w-36 rounded-lg px-4">WhatsApp</TabsTrigger>
+              <TabsTrigger value="logs" className="h-10 min-w-28 rounded-lg px-4">Logs</TabsTrigger>
+              <TabsTrigger value="credentials" className="h-10 min-w-36 rounded-lg px-4">Credenciais</TabsTrigger>
             </TabsList>
 
             <TabsContent value="groups" id="grupos">
@@ -2166,6 +1950,7 @@ export default function Dashboard() {
                         {!destinationGroups.length ? <div className="rounded-xl border border-dashed border-[#34483c] p-6 text-center"><UsersRound className="mx-auto mb-2 size-8 text-[#63746a]" /><p className="text-sm font-bold">Nenhum destino configurado</p><button type="button" onClick={() => setActiveTab("groups")} className="mt-2 text-xs font-bold text-[#58e683] underline">Configurar grupos</button></div> : null}
                       </div>
                       <Button onClick={() => void sendPromotionToGroups()} disabled={promotionSending || !promotionGroups.length || !promotionMessage.trim() || (promotionStore === "mercadolivre" && !isMercadoLivreShortAffiliateUrl(promotionItem.url))} className="h-12 w-full rounded-xl bg-[#30dd6b] font-black text-[#04140a] hover:bg-[#55ec82]">{promotionSending ? <LoaderCircle className="animate-spin" /> : <Send />} {promotionSending ? "Enviando..." : `Enviar para ${promotionGroups.length || 0} grupo${promotionGroups.length === 1 ? "" : "s"}`}</Button>
+                      {promotionItem.reviews?.some((review) => review.images?.length) ? <p className="rounded-xl border border-[#31543b] bg-[#0b1710] p-3 text-center text-xs leading-5 text-[#9eeab3]">A UAZAPI enviará um carrossel com as primeiras {Math.min(5, new Set(promotionItem.reviews.flatMap((review) => review.images || [])).size)} fotos reais das avaliações.</p> : null}
                       <p className="text-center text-xs leading-5 text-[#829389]">{promotionStore === "mercadolivre" ? "O envio só é liberado depois que o Mercado Livre confirma o seu link curto meli.la." : "Cada grupo recebe uma mensagem separada com a foto oficial e o seu link convertido."}</p>
                     </CardContent>
                   </Card>
@@ -2174,22 +1959,7 @@ export default function Dashboard() {
             </TabsContent>
 
             <TabsContent value="products" id="produtos">
-              <div className="grid gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
-                <Card className="h-fit border-[#27322b] bg-[#0b100d] shadow-none xl:sticky xl:top-24">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-lg"><PackageSearch className="size-5 text-[#62ef8b]" /> Resolver um link</CardTitle>
-                    <CardDescription>Cole a mensagem inteira. O painel percorre os redirecionamentos e procura Amazon ou Mercado Livre.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <Textarea value={productInput} onChange={(event) => setProductInput(event.target.value)} rows={7} placeholder={"Ex.: Oferta encontrada!\nhttps://amzn.to/...\nou https://promoby.me/..."} className="min-h-40 resize-y rounded-xl border-[#34423a] bg-[#080c09]" />
-                    <Button onClick={() => void analyzeProductLinks()} disabled={productResolving} className="h-12 w-full rounded-xl bg-[#00c853] font-bold text-[#04140a] hover:bg-[#16dc61]">{productResolving ? <LoaderCircle className="animate-spin" /> : <PackageSearch />} Identificar e converter</Button>
-                    <div className="rounded-xl border border-[#244c31] bg-[#0d1d12] p-3 text-sm leading-6 text-[#a7cbb2]">
-                      Links de outras lojas são registrados sem alteração. No Mercado Livre, a conversão usa a sessão salva neste navegador.
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <div className="min-w-0 space-y-4">
+              <div className="min-w-0 space-y-4">
                   <Card className="border-[#27322b] bg-[#0b100d] shadow-none">
                     <CardContent className="grid gap-3 p-4 sm:grid-cols-[minmax(0,1fr)_210px_auto]">
                       <div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#718079]" /><Input value={productSearch} onChange={(event) => setProductSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void loadProducts(); }} placeholder="Buscar produto, código ou link" className="h-11 rounded-xl border-[#34423a] bg-[#080c09] pl-10" /></div>
@@ -2276,7 +2046,6 @@ export default function Dashboard() {
                       </CardContent>
                     </Card>
                   ))}
-                </div>
               </div>
             </TabsContent>
 
@@ -2374,16 +2143,13 @@ export default function Dashboard() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4 pt-5">
-                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_230px]">
-                    <label className="space-y-2 text-sm font-semibold">URL completa ou código MLB<Input value={localCollectorInput} onChange={(event) => setLocalCollectorInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void collectProductFromBrowser(); }} placeholder="https://www.mercadolivre.com.br/... ou MLB123456789" className="h-12 border-[#34423a] bg-[#080c09]" /></label>
-                    <label className="space-y-2 text-sm font-semibold">Token do coletor<Input type="password" value={localCollectorToken} onChange={(event) => setLocalCollectorToken(event.target.value)} placeholder="Exibido na janela preta" className="h-12 border-[#34423a] bg-[#080c09]" /></label>
-                  </div>
+                  <label className="block space-y-2 text-sm font-semibold">URL completa ou código MLB/MLBU<Input value={localCollectorInput} onChange={(event) => setLocalCollectorInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void collectProductFromBrowser(); }} placeholder="https://www.mercadolivre.com.br/... ou MLBU3142068675" className="h-12 border-[#34423a] bg-[#080c09]" /></label>
                   <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                     <Button onClick={() => void collectProductFromBrowser()} disabled={localCollectorLoading} className="h-12 rounded-xl bg-[#24c75a] font-extrabold text-[#04140a] hover:bg-[#46df75]">{localCollectorLoading ? <LoaderCircle className="animate-spin" /> : <Search />} {localCollectorLoading ? "Lendo a página aberta..." : "Abrir Chrome e extrair dados"}</Button>
                     <Button variant="outline" onClick={() => void checkLocalCollector(true)} className="h-12 border-[#34423a] bg-[#111813] text-white hover:bg-[#19231c]"><RefreshCw /> Testar conexão</Button>
                   </div>
                   <Button asChild variant="outline" className="h-12 w-full border-[#31543b] bg-[#0d1d12] text-[#8af3a5] hover:bg-[#153520]"><a href="http://127.0.0.1:8765" target="_blank" rel="noreferrer"><ExternalLink /> Abrir o painel local (modo mais confiável)</a></Button>
-                  <details className="rounded-xl border border-[#27322b] bg-[#080c09] px-4 py-3 text-sm"><summary className="cursor-pointer font-semibold">Como iniciar no computador</summary><ol className="mt-3 list-decimal space-y-2 pl-5 leading-6 text-[#94a69b]"><li>Abra a pasta <code>local-collector</code> do projeto e dê dois cliques em <code>iniciar-coletor.cmd</code>.</li><li>Copie o token mostrado na janela preta e cole acima.</li><li>Na primeira vez, faça login no Mercado Livre na janela do Chrome criada pelo coletor.</li></ol><p className="mt-3 text-xs leading-5 text-[#718079]">A sessão fica apenas no seu computador. Se aparecer CAPTCHA ou confirmação de identidade, resolva manualmente no Chrome e clique novamente.</p></details>
+                  <details className="rounded-xl border border-[#27322b] bg-[#080c09] px-4 py-3 text-sm"><summary className="cursor-pointer font-semibold">Como iniciar no computador</summary><ol className="mt-3 list-decimal space-y-2 pl-5 leading-6 text-[#94a69b]"><li>Abra a pasta <code>local-collector</code> do projeto e dê dois cliques em <code>iniciar-coletor.cmd</code>.</li><li>Cadastre a URL e o token na aba <strong>Credenciais</strong>.</li><li>Na primeira vez, faça login no Mercado Livre na janela do Chrome criada pelo coletor.</li></ol><p className="mt-3 text-xs leading-5 text-[#718079]">A sessão fica apenas no seu computador. Se aparecer CAPTCHA ou confirmação de identidade, resolva manualmente no Chrome e clique novamente.</p></details>
                   {localCollectorError && <div className="rounded-xl border border-[#784235] bg-[#21110e] p-3 text-sm leading-6 text-[#ffb0a7]">{localCollectorError}</div>}
                   {localCollectorResult && <div className="rounded-xl border border-[#31543b] bg-[#0b1710] p-4"><div className="flex flex-wrap items-center justify-between gap-2"><p className="font-bold text-[#8af3a5]">Última leitura concluída</p><p className="text-xs text-[#718079]">{localCollectorResult.capturedAt ? new Date(localCollectorResult.capturedAt).toLocaleString("pt-BR") : "agora"}</p></div><div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{[["Preço no Pix", localCollectorResult.pixPrice != null ? formatMoney(localCollectorResult.pixPrice, localCollectorResult.currency || "BRL") : "—"], ["Preço normal", localCollectorResult.standardPrice != null ? formatMoney(localCollectorResult.standardPrice, localCollectorResult.currency || "BRL") : "—"], ["Preço anterior", localCollectorResult.originalPrice != null ? formatMoney(localCollectorResult.originalPrice, localCollectorResult.currency || "BRL") : "—"], ["Com cupom", localCollectorResult.coupon?.price != null ? formatMoney(localCollectorResult.coupon.price, localCollectorResult.currency || "BRL") : "—"]].map(([label, value]) => <div key={label} className="rounded-lg bg-[#111813] p-3"><p className="text-xs text-[#718079]">{label}</p><p className="mt-1 font-bold text-white">{value}</p></div>)}</div><p className="mt-3 text-xs leading-5 text-[#94a69b]">O produto completo foi aberto no modal abaixo, com imagem, IDs, vendedor, estoque, cupom, parcelas e ficha técnica.</p></div>}
                 </CardContent>
@@ -2406,7 +2172,7 @@ export default function Dashboard() {
                       {catalogSearchStore === "mercadolivre" && <label className="block space-y-2 text-sm font-semibold">Qualidade da oferta<NativeSelect value={catalogQuality} onChange={(event) => setCatalogQuality(event.target.value)}><NativeSelectOption value="all">Todas</NativeSelectOption><NativeSelectOption value="priced">Somente com preço confirmado</NativeSelectOption><NativeSelectOption value="good_deal">Boas ofertas</NativeSelectOption><NativeSelectOption value="coupon">Com cupom</NativeSelectOption><NativeSelectOption value="free_shipping">Frete grátis</NativeSelectOption><NativeSelectOption value="full">Envio Full</NativeSelectOption><NativeSelectOption value="official_store">Loja oficial</NativeSelectOption></NativeSelect></label>}
                       <Button onClick={() => void searchCatalog()} disabled={catalogSearching} className="h-12 w-full rounded-xl bg-[#24c75a] font-bold text-[#04140a] hover:bg-[#46df75]">{catalogSearching ? <LoaderCircle className="animate-spin" /> : <Search />} {catalogSearching ? "Cruzando dados oficiais..." : catalogQuery.trim() ? "Buscar ofertas" : "Ver recomendações"}</Button>
                       {catalogError && <div className="rounded-xl border border-[#784235] bg-[#21110e] p-3 text-sm leading-6 text-[#ffb0a7]">{catalogError}</div>}
-                      {catalogWarning && <div className="flex items-start gap-3 rounded-xl border border-[#66532e] bg-[#241d0c] p-3 text-sm leading-6 text-[#e6c47d]"><CircleAlert className="mt-1 size-4 shrink-0" /><div><p className="font-bold">Por que nenhum preço apareceu?</p><p className="mt-1">A API de catálogo devolveu produtos e imagens, mas não uma oferta vencedora. A API de preços bloqueou anúncios de outros vendedores e a leitura da vitrine pediu validação dos cookies salvos. Por segurança, o painel não inventa nem reaproveita preço antigo.</p><p className="mt-2">{catalogWarning} Vá em <strong>Afiliados → Mercado Livre</strong>, cole uma exportação recente dos cookies e salve; a próxima busca tentará novamente automaticamente.</p></div></div>}
+                      {catalogWarning && <div className="flex items-start gap-3 rounded-xl border border-[#66532e] bg-[#241d0c] p-3 text-sm leading-6 text-[#e6c47d]"><CircleAlert className="mt-1 size-4 shrink-0" /><div><p className="font-bold">Por que nenhum preço apareceu?</p><p className="mt-1">A API de catálogo devolveu produtos e imagens, mas não uma oferta vencedora. A API de preços bloqueou anúncios de outros vendedores e a leitura da vitrine pediu validação dos cookies salvos. Por segurança, o painel não inventa nem reaproveita preço antigo.</p><p className="mt-2">{catalogWarning} Vá em <strong>Credenciais</strong>, cole uma exportação recente dos cookies e salve; a próxima busca tentará novamente automaticamente.</p></div></div>}
                     </CardContent>
                   </Card>
 
@@ -2422,16 +2188,6 @@ export default function Dashboard() {
                 <div className="space-y-5">
                   <Card className="border-[#27322b] bg-[#0b100d] shadow-none"><CardHeader><CardTitle className="text-base">Filtros disponíveis</CardTitle><CardDescription>São atualizados a cada busca conforme a categoria e a loja.</CardDescription></CardHeader><CardContent>{catalogFilterLabels(catalogFilters).length ? <div className="flex flex-wrap gap-2">{catalogFilterLabels(catalogFilters).map((label) => <Badge key={label} className="border border-[#35513e] bg-[#102018] text-[#dff7e5]">{label}</Badge>)}</div> : <p className="text-sm leading-6 text-[#94a69b]">Faça uma consulta para ver categorias, marcas, condição, frete, faixa de preço e outros refinamentos retornados pela loja.</p>} {catalogFilters ? <details className="mt-4 rounded-xl border border-[#27322b] bg-[#080c09]"><summary className="cursor-pointer px-3 py-3 text-sm font-semibold">Ver filtros completos (JSON)</summary><pre className="max-h-72 overflow-auto border-t border-[#27322b] p-3 text-xs leading-5 text-[#8fd9a4]">{JSON.stringify(catalogFilters, null, 2)}</pre></details> : null}</CardContent></Card>
 
-                  <Card className="border-[#27322b] bg-[#0b100d] shadow-none"><CardHeader><CardTitle className="flex items-center gap-2 text-base"><KeyRound className="size-4 text-[#62ef8b]" /> Credenciais das APIs</CardTitle><CardDescription>Os segredos ficam criptografados e nunca voltam para o navegador.</CardDescription></CardHeader><CardContent className="space-y-4">
-                    <div className="rounded-xl border border-[#27322b] bg-[#080c09] p-3"><div className="flex items-center justify-between"><p className="font-bold">Amazon Creators API</p><Badge className={catalogCredentials.amazonConfigured ? "bg-[#153520] text-[#8af3a5]" : "bg-[#2a230c] text-[#f4d35e]"}>{catalogCredentials.amazonConfigured ? "Conectada" : "Aguardando aprovação"}</Badge></div><p className="mt-2 text-xs leading-5 text-[#94a69b]">Sua conta mostra que ainda não está aprovada para criar credenciais. O painel já está pronto para recebê-las.</p></div>
-                    <Input value={amazonClientId} onChange={(event) => setAmazonClientId(event.target.value)} placeholder="Amazon Credential ID" className="h-11 border-[#34423a] bg-[#080c09]" />
-                    <Input type="password" value={amazonClientSecret} onChange={(event) => setAmazonClientSecret(event.target.value)} placeholder="Amazon Credential Secret" className="h-11 border-[#34423a] bg-[#080c09]" />
-                    <div className="rounded-xl border border-[#27322b] bg-[#080c09] p-3"><div className="flex items-center justify-between gap-3"><p className="font-bold">Mercado Livre API</p><Badge className={catalogCredentials.mercadoLivreConfigured ? "bg-[#153520] text-[#8af3a5]" : catalogCredentials.mercadoLivreAppConfigured ? "bg-[#2a230c] text-[#f4d35e]" : "bg-[#202622] text-[#c0c9c3]"}>{catalogCredentials.mercadoLivreConfigured ? "Conectada" : catalogCredentials.mercadoLivreAppConfigured ? "Pronta para autorizar" : "Aplicativo não configurado"}</Badge></div><p className="mt-2 text-xs leading-5 text-[#94a69b]">OAuth oficial com renovação automática. O Client Secret e os tokens ficam criptografados e não retornam ao navegador.</p>{catalogCredentials.mercadoLivreUserId && <p className="mt-2 text-xs font-semibold text-[#8af3a5]">Conta conectada · usuário {catalogCredentials.mercadoLivreUserId}</p>}</div>
-                    <Input value={mercadoLivreClientId} onChange={(event) => setMercadoLivreClientId(event.target.value)} placeholder="Mercado Livre Client ID" className="h-11 border-[#34423a] bg-[#080c09]" />
-                    <Input type="password" value={mercadoLivreClientSecret} onChange={(event) => setMercadoLivreClientSecret(event.target.value)} placeholder={catalogCredentials.mercadoLivreAppConfigured ? "Client Secret já salvo — preencha apenas para trocar" : "Mercado Livre Client Secret"} className="h-11 border-[#34423a] bg-[#080c09]" />
-                    <Button onClick={() => void connectMercadoLivre()} disabled={mercadoLivreConnecting || (!catalogCredentials.mercadoLivreAppConfigured && !mercadoLivreClientSecret)} className="w-full bg-[#ffe600] font-extrabold text-[#231f00] hover:bg-[#fff05a]">{mercadoLivreConnecting ? <LoaderCircle className="animate-spin" /> : <KeyRound />} {catalogCredentials.mercadoLivreConfigured ? "Reconectar Mercado Livre" : "Salvar e conectar Mercado Livre"}</Button>
-                    <details className="rounded-xl border border-[#27322b] bg-[#080c09]"><summary className="cursor-pointer px-3 py-3 text-xs font-semibold text-[#94a69b]">Opção avançada: colar Access Token manual</summary><div className="space-y-3 border-t border-[#27322b] p-3"><Input type="password" value={mercadoLivreAccessToken} onChange={(event) => setMercadoLivreAccessToken(event.target.value)} placeholder="Access Token temporário" className="h-11 border-[#34423a] bg-[#080c09]" /><Button onClick={() => void saveCatalogCredentials()} disabled={catalogCredentialsSaving || (!amazonClientId && !amazonClientSecret && !mercadoLivreAccessToken)} variant="outline" className="w-full border-[#2e7041] bg-[#112a19] text-[#8ef1aa] hover:bg-[#183b24]">{catalogCredentialsSaving ? <LoaderCircle className="animate-spin" /> : <ShieldCheck />} Salvar credenciais</Button></div></details>
-                  </CardContent></Card>
                 </div>
               </div>
               <Dialog open={Boolean(selectedCatalogItem)} onOpenChange={(open) => { if (!open) setSelectedCatalogItem(null); }}>
@@ -2483,315 +2239,67 @@ export default function Dashboard() {
               </div>
             </TabsContent>
 
-            <TabsContent value="ranking" id="ranking-mercado-livre">
+            <TabsContent value="credentials" id="credenciais">
               <div className="space-y-5">
-                <Card className="overflow-hidden border-[#4a4615] bg-[#0b100d] shadow-none">
-                  <CardHeader className="border-b border-[#34351c] bg-[linear-gradient(110deg,rgba(255,230,0,.12),transparent_62%)]">
-                    <div className="flex items-start gap-3"><div className="grid size-11 shrink-0 place-items-center rounded-xl bg-[#ffe600] text-[#231f00]"><Trophy className="size-5" /></div><div><CardTitle className="text-xl">Descobrir ofertas do catálogo</CardTitle><CardDescription className="mt-1">Cole uma URL de listagem. O painel entende a busca, consulta o catálogo oficial e compara a oferta vencedora de cada produto.</CardDescription></div></div>
-                  </CardHeader>
-                  <CardContent className="space-y-4 pt-5">
-                    <label className="block space-y-2 text-sm font-semibold">URL da listagem do Mercado Livre<Input value={rankingUrl} onChange={(event) => setRankingUrl(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void analyzeMercadoLivreListing(); }} placeholder="https://lista.mercadolivre.com.br/..." className="h-12 border-[#474831] bg-[#080c09]" /></label>
-                    <div className="grid gap-3 sm:grid-cols-[220px_minmax(0,1fr)] sm:items-end">
-                      <label className="space-y-2 text-sm font-semibold">Limite da análise<NativeSelect value={rankingMaxPages} onChange={(event) => setRankingMaxPages(event.target.value)}><NativeSelectOption value="1">Até 10 produtos</NativeSelectOption><NativeSelectOption value="2">Até 20 produtos</NativeSelectOption><NativeSelectOption value="3">Até 30 produtos</NativeSelectOption><NativeSelectOption value="5">Até 50 produtos</NativeSelectOption></NativeSelect></label>
-                      <Button onClick={() => void analyzeMercadoLivreListing()} disabled={rankingLoading} className="h-12 rounded-xl bg-[#ffe600] font-extrabold text-[#231f00] hover:bg-[#fff05a]">{rankingLoading ? <LoaderCircle className="animate-spin" /> : <Trophy />} {rankingLoading ? "Percorrendo as páginas..." : "Analisar e criar ranking"}</Button>
-                    </div>
-                    <p className="text-xs leading-5 text-[#94a69b]">A URL é usada para descobrir a busca. O fragmento depois de <code>#</code> não altera a consulta. Como a busca global antiga foi desativada pelo Mercado Livre, o ranking usa produtos do catálogo e a oferta vencedora (buy box). A nota é uma heurística do Promozap.</p>
-                    {rankingError && <div className="rounded-xl border border-[#784235] bg-[#21110e] p-3 text-sm leading-6 text-[#ffb0a7]">{rankingError}</div>}
-                  </CardContent>
-                </Card>
-
-                {rankingResult && <>
-                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    <div className="rounded-xl border border-[#27322b] bg-[#0b100d] p-4"><p className="text-xs font-bold uppercase tracking-[.08em] text-[#718079]">Busca entendida</p><p className="mt-2 line-clamp-2 font-bold">{rankingResult.query || "—"}</p></div>
-                    <div className="rounded-xl border border-[#27322b] bg-[#0b100d] p-4"><p className="text-xs font-bold uppercase tracking-[.08em] text-[#718079]">Categoria</p><p className="mt-2 font-bold">{rankingResult.category?.categoryName || rankingResult.category?.categoryId || "Detectada pela busca"}</p></div>
-                    <div className="rounded-xl border border-[#27322b] bg-[#0b100d] p-4"><p className="text-xs font-bold uppercase tracking-[.08em] text-[#718079]">Mediana de preço</p><p className="mt-2 font-bold text-[#62ef8b]">{formatMoney(rankingResult.medianPrice)}</p></div>
-                    <div className="rounded-xl border border-[#27322b] bg-[#0b100d] p-4"><p className="text-xs font-bold uppercase tracking-[.08em] text-[#718079]">Cobertura</p><p className="mt-2 font-bold">{rankingResult.scanned?.toLocaleString("pt-BR")} de {rankingResult.total?.toLocaleString("pt-BR")}</p></div>
-                  </div>
-                  {rankingResult.warning && <div className="flex items-start gap-3 rounded-xl border border-[#66532e] bg-[#241d0c] p-4 text-sm leading-6 text-[#e6c47d]"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{rankingResult.warning} Aumente o limite para ampliar a cobertura.</span></div>}
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-xl font-bold">Produtos ranqueados</h2><p className="mt-1 text-sm text-[#94a69b]">Clique em qualquer produto para abrir todos os dados recebidos.</p></div><div className="relative w-full sm:max-w-sm"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#718079]" /><Input value={rankingSearch} onChange={(event) => setRankingSearch(event.target.value)} placeholder="Filtrar por nome, ID ou vendedor" className="h-11 border-[#34423a] bg-[#080c09] pl-10" /></div></div>
-                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                    {filteredRankingProducts.map((product) => <button key={product.id} type="button" onClick={() => setSelectedRankedProduct(product)} className="group overflow-hidden rounded-2xl border border-[#27322b] bg-[#0b100d] text-left shadow-none transition hover:-translate-y-0.5 hover:border-[#777121] hover:shadow-[0_18px_45px_rgba(0,0,0,.28)]">
-                      <div className="relative aspect-[4/3] bg-white p-3">{product.imageUrl ? <img src={product.imageUrl} alt={product.title} className="h-full w-full object-contain transition duration-300 group-hover:scale-[1.03]" loading="lazy" /> : <div className="grid h-full place-items-center"><ShoppingBag className="size-9 text-[#607267]" /></div>}<div className="absolute left-3 top-3 rounded-full bg-[#ffe600] px-3 py-1 text-sm font-black text-[#231f00]">#{product.position}</div><div className="absolute right-3 top-3 rounded-full bg-[#07140b]/92 px-3 py-1 text-sm font-extrabold text-[#72f295]">{product.score}/100</div></div>
-                      <div className="space-y-3 p-4"><div className="flex flex-wrap gap-2">{product.discountPercentage > 0 && <Badge className="bg-[#24c75a] text-[#04140a]">-{product.discountPercentage}%</Badge>}{product.shipping.free && <Badge className="border border-[#2d8a4b] bg-[#153520] text-[#8af3a5]">Frete grátis</Badge>}{product.shipping.full && <Badge className="border border-[#365078] bg-[#14233a] text-[#9bc4ff]">Full</Badge>}</div><h3 className="line-clamp-3 min-h-[4.5rem] font-bold leading-6">{product.title}</h3><div><p className="text-2xl font-extrabold text-[#62ef8b]">{formatMoney(product.price, product.currency)}</p>{product.originalPrice && product.originalPrice > (product.price || 0) ? <p className="text-sm text-[#718079] line-through">{formatMoney(product.originalPrice, product.currency)}</p> : null}</div><div className="flex flex-wrap gap-1.5">{product.reasons.slice(0, 3).map((reason) => <span key={reason} className="rounded-md bg-[#151d18] px-2 py-1 text-[11px] text-[#a9b8ae]">{reason}</span>)}</div><p className="text-xs font-semibold text-[#ffe84a]">Ver detalhes completos →</p></div>
-                    </button>)}
-                  </div>
-                  {filteredRankingProducts.length === 0 && <div className="rounded-xl border border-dashed border-[#34423a] p-8 text-center text-sm text-[#94a69b]">Nenhum produto corresponde ao filtro.</div>}
-                </>}
-              </div>
-
-              <Dialog open={Boolean(selectedRankedProduct)} onOpenChange={(open) => { if (!open) setSelectedRankedProduct(null); }}>
-                <DialogContent className="max-h-[90vh] overflow-y-auto border-[#34423a] bg-[#090d0a] text-white sm:max-w-3xl">
-                  {selectedRankedProduct && <><DialogHeader><div className="mb-2 flex flex-wrap gap-2"><Badge className="bg-[#ffe600] text-[#231f00]">#{selectedRankedProduct.position} no ranking</Badge><Badge className="bg-[#153520] text-[#8af3a5]">Nota {selectedRankedProduct.score}/100</Badge>{selectedRankedProduct.bestSellerPosition && <Badge className="bg-[#3c2f08] text-[#ffe76b]">#{selectedRankedProduct.bestSellerPosition} mais vendido</Badge>}</div><DialogTitle className="pr-7 text-xl leading-7">{selectedRankedProduct.title}</DialogTitle><DialogDescription>Dados estruturados retornados pela API do Mercado Livre.</DialogDescription></DialogHeader>
-                    <div className="grid gap-5 md:grid-cols-[260px_minmax(0,1fr)]"><div className="aspect-square overflow-hidden rounded-xl bg-white p-3">{selectedRankedProduct.imageUrl ? <img src={selectedRankedProduct.imageUrl} alt={selectedRankedProduct.title} className="h-full w-full object-contain" /> : <div className="grid h-full place-items-center"><ShoppingBag className="size-10 text-[#607267]" /></div>}</div><div className="space-y-4"><div><p className="text-3xl font-black text-[#62ef8b]">{formatMoney(selectedRankedProduct.price, selectedRankedProduct.currency)}</p>{selectedRankedProduct.originalPrice && <p className="text-sm text-[#718079] line-through">{formatMoney(selectedRankedProduct.originalPrice, selectedRankedProduct.currency)}</p>}</div><div className="grid grid-cols-2 gap-2 text-sm">{[["ID", selectedRankedProduct.id], ["Vendidos", selectedRankedProduct.soldQuantity], ["Disponíveis", selectedRankedProduct.availableQuantity], ["Condição", selectedRankedProduct.condition], ["Vendedor", selectedRankedProduct.seller.nickname || selectedRankedProduct.seller.id], ["Reputação", selectedRankedProduct.seller.powerSellerStatus || selectedRankedProduct.seller.reputation], ["Categoria", selectedRankedProduct.categoryId], ["Catálogo", selectedRankedProduct.catalogProductId]].map(([label, value]) => <div key={String(label)} className="rounded-lg bg-[#111813] p-3"><p className="text-[11px] font-bold uppercase tracking-[.08em] text-[#718079]">{label}</p><p className="mt-1 break-all font-semibold">{value == null ? "—" : String(value)}</p></div>)}</div><div className="flex flex-wrap gap-2">{selectedRankedProduct.reasons.map((reason) => <Badge key={reason} className="border border-[#35513e] bg-[#102018] text-[#dff7e5]">{reason}</Badge>)}</div>{selectedRankedProduct.url && <Button asChild className="w-full bg-[#ffe600] font-bold text-[#231f00] hover:bg-[#fff05a]"><a href={selectedRankedProduct.url} target="_blank" rel="noreferrer"><ExternalLink /> Abrir no Mercado Livre</a></Button>}</div></div>
-                    {selectedRankedProduct.attributes.length > 0 && <div><p className="mb-3 text-xs font-bold uppercase tracking-[.1em] text-[#718079]">Ficha técnica</p><div className="grid gap-2 sm:grid-cols-2">{selectedRankedProduct.attributes.map((attribute, index) => <div key={`${String(attribute.id || attribute.name)}-${index}`} className="rounded-lg border border-[#27322b] bg-[#0d1310] px-3 py-2"><p className="text-xs text-[#718079]">{String(attribute.name || attribute.id || "Atributo")}</p><p className="mt-1 text-sm font-medium">{String(attribute.value_name || attribute.value_id || "—")}</p></div>)}</div></div>}
-                    <details className="rounded-xl border border-[#27322b] bg-[#080c09]"><summary className="cursor-pointer px-3 py-3 text-sm font-semibold">Ver resposta completa da API (JSON)</summary><div className="border-t border-[#27322b] p-3"><Button variant="outline" size="sm" onClick={() => { void navigator.clipboard.writeText(JSON.stringify(selectedRankedProduct, null, 2)); toast.success("Dados do produto copiados."); }} className="mb-3 border-[#34423a] bg-[#111813] text-white"><Copy /> Copiar JSON</Button><pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all text-xs leading-5 text-[#8fd9a4]">{JSON.stringify(selectedRankedProduct, null, 2)}</pre></div></details>
-                  </>}
-                </DialogContent>
-              </Dialog>
-            </TabsContent>
-
-            <TabsContent value="affiliates" id="afiliados">
-              <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-                <Card className="border-[#dce7df] shadow-[0_10px_30px_rgba(7,20,22,.05)]">
-                  <CardHeader>
-                    <CardTitle className="text-xl">Links de afiliado</CardTitle>
-                    <CardDescription>Defina como os links encontrados serão convertidos antes da publicação.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-6">
-                    <div className="rounded-2xl border border-[#e2eae5] p-4 sm:p-5">
-                      <div className="flex items-start justify-between gap-4">
-                        <div><p className="font-bold">Amazon</p><p className="mt-1 text-sm text-[#66736c]">Conversão automática pelo ASIN do produto.</p></div>
-                        <Switch checked={affiliate.amazonEnabled} onCheckedChange={(amazonEnabled) => setAffiliate((value) => ({ ...value, amazonEnabled }))} aria-label="Ativar Amazon" />
-                      </div>
-                      <label className="mt-4 block space-y-2 text-sm font-semibold">Tracking ID da Amazon<Input value={affiliate.amazonTrackingId} onChange={(event) => setAffiliate((value) => ({ ...value, amazonTrackingId: event.target.value }))} placeholder="Ex.: promozap-20" className="h-12 rounded-xl" /></label>
-                      <p className="mt-2 text-xs leading-5 text-[#66736c]">O painel encontra o ASIN e monta um link limpo com o seu Tracking ID.</p>
-                    </div>
-
-                    <div className="rounded-2xl border border-[#e2eae5] p-4 sm:p-5">
-                      <div className="flex items-start justify-between gap-4">
-                        <div><p className="font-bold">Mercado Livre</p><p className="mt-1 text-sm text-[#66736c]">Identificação do MLB ID e rastreamento da campanha.</p></div>
-                        <Switch checked={affiliate.mercadoLivreEnabled} onCheckedChange={(mercadoLivreEnabled) => setAffiliate((value) => ({ ...value, mercadoLivreEnabled }))} aria-label="Ativar Mercado Livre" />
-                      </div>
-                      <label className="mt-4 block space-y-2 text-sm font-semibold">Etiqueta da campanha<Input value={affiliate.mercadoLivreLabel} onChange={(event) => setAffiliate((value) => ({ ...value, mercadoLivreLabel: event.target.value }))} placeholder="Ex.: promozap-whatsapp" className="h-12 rounded-xl" /></label>
-                      <div className="mt-3 flex gap-2 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900"><CircleAlert className="mt-0.5 size-4 shrink-0" /><p>O Mercado Livre não usa um código simples na URL. O painel prepara o produto, mas o link precisa vir do Gerador oficial até existir uma integração autorizada.</p></div>
-                    </div>
-
-                    <label className="block space-y-2 text-sm font-semibold">Seu domínio de redirecionamento<Input value={affiliate.redirectDomain} onChange={(event) => setAffiliate((value) => ({ ...value, redirectDomain: event.target.value }))} placeholder="https://go.promozap.com.br" className="h-12 rounded-xl" /></label>
-                    <Button onClick={() => void saveAffiliate()} disabled={saving} className="h-12 w-full rounded-xl bg-[#00c853] text-[#04140a] hover:bg-[#16dc61] sm:w-auto">{saving ? <LoaderCircle className="animate-spin" /> : <BadgeCheck />} Salvar afiliados</Button>
-                  </CardContent>
-                </Card>
-
-                <Card className="h-fit border-[#dce7df] bg-[#071416] text-white shadow-[0_18px_50px_rgba(7,20,22,.16)]">
-                  <CardHeader><CardTitle className="text-lg">Testar conversão</CardTitle><CardDescription className="text-white/55">Cole um link direto da Amazon para conferir.</CardDescription></CardHeader>
-                  <CardContent className="space-y-4">
-                    <Input value={testUrl} onChange={(event) => setTestUrl(event.target.value)} className="h-12 rounded-xl border-white/15 bg-white/8 text-white" />
-                    <div className="min-h-24 rounded-xl border border-white/10 bg-white/6 p-4">
-                      <p className="text-xs font-semibold text-white/45">RESULTADO</p>
-                      <p className="mt-2 break-all text-sm leading-6 text-[#7cff94]">{convertedAmazonUrl || "Informe um ASIN válido e seu Tracking ID."}</p>
-                    </div>
-                    {convertedAmazonUrl && <Button variant="outline" onClick={() => { void navigator.clipboard.writeText(convertedAmazonUrl); toast.success("Link copiado."); }} className="h-11 w-full border-white/15 bg-white/8 text-white hover:bg-white/14"><Copy /> Copiar resultado</Button>}
-                  </CardContent>
-                </Card>
-
-              </div>
-            </TabsContent>
-
-            <TabsContent value="amazon" id="amazon">
-              <div className="overflow-hidden rounded-2xl border border-[#4b3821] bg-[#111820] shadow-[0_18px_55px_rgba(0,0,0,.24)]">
-                <div className="flex flex-col gap-4 px-5 py-6 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-                  <div className="flex items-center gap-3">
-                    <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[#ff9900] text-[#111820]"><ShoppingBag className="size-5" /></div>
-                    <div><h2 className="text-xl font-extrabold tracking-[-0.03em] text-white">Gerador Amazon</h2><p className="mt-1 text-sm text-[#b9c5cf]">Transforme links longos, páginas de produto e amzn.to em links de afiliado limpos.</p></div>
-                  </div>
-                  <div className={`flex w-fit items-center gap-2 rounded-full px-3 py-2 text-sm font-bold ${affiliate.amazonTrackingId && affiliate.amazonEnabled ? "bg-[#1f3f2d] text-[#8ff0ad]" : "bg-white/8 text-[#c5cbd0]"}`}>
-                    <span className={`size-2 rounded-full ${affiliate.amazonTrackingId && affiliate.amazonEnabled ? "bg-[#53e27e]" : "bg-[#77818a]"}`} />
-                    {affiliate.amazonTrackingId && affiliate.amazonEnabled ? `Tracking ID: ${affiliate.amazonTrackingId}` : "Tracking ID não configurado"}
-                  </div>
-                </div>
-              </div>
-
-              {amazonTestResult && (
-                <Card className={`mt-5 overflow-hidden ${amazonTestResult.ok ? "border-[#6d4b1f] bg-[#15130f]" : "border-[#784235] bg-[#21110e]"}`}>
-                  <CardHeader className="border-b border-white/8"><CardTitle className="text-lg">{amazonTestResult.ok ? "Links gerados" : "Não foi possível gerar"}</CardTitle><CardDescription>{amazonTestResult.message}</CardDescription></CardHeader>
-                  <CardContent className="grid gap-3 pt-5 lg:grid-cols-2">
-                    {amazonTestResult.results?.map((item, index) => (
-                      <div key={`${item.originUrl}-${index}`} className="rounded-xl border border-white/10 bg-[#090d11] p-4">
-                        <p className="break-all text-xs leading-5 text-[#84919b]">{item.originUrl}</p>
-                        {item.ok && item.affiliateUrl ? (
-                          <>
-                            <div className="mt-3 flex flex-wrap items-center gap-2">
-                              {item.asin && <Badge className="border border-[#80591f] bg-[#2c2112] text-[#ffbd59]">ASIN {item.asin}</Badge>}
-                              {Boolean(item.redirectCount) && <Badge className="border border-[#35414b] bg-[#151c22] text-[#b9c5cf]">{item.redirectCount} redirecionamento(s)</Badge>}
-                            </div>
-                            {item.title && <p className="mt-3 line-clamp-2 text-sm font-semibold text-white">{item.title}</p>}
-                            <a href={item.affiliateUrl} target="_blank" rel="noreferrer" className="mt-3 block break-all text-sm font-bold leading-6 text-[#ffb84d] underline underline-offset-2">{item.affiliateUrl}</a>
-                            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                              <Button variant="outline" size="sm" onClick={() => { void navigator.clipboard.writeText(item.affiliateUrl || ""); toast.success("Link copiado."); }} className="rounded-lg border-[#4a3a24] bg-[#211a11] text-white hover:bg-[#2d2316]"><Copy /> Copiar link</Button>
-                              <Button asChild variant="outline" size="sm" className="rounded-lg border-[#35414b] bg-[#151c22] text-white hover:bg-[#202a32]"><a href={item.affiliateUrl} target="_blank" rel="noreferrer"><ExternalLink /> Abrir</a></Button>
-                            </div>
-                          </>
-                        ) : <p className="mt-3 text-sm font-semibold text-[#ff9b92]">{item.message || "Link não reconhecido como Amazon Brasil."}</p>}
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-              )}
-
-              <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-                <Card className="border-[#dce7df] shadow-[0_10px_30px_rgba(7,20,22,.05)]">
-                  <CardHeader><CardTitle className="flex items-center gap-2 text-xl"><Link2 className="size-5 text-[#ff9900]" /> Produtos para converter</CardTitle><CardDescription>Cole até 20 links da Amazon, um por linha. Links curtos são seguidos até o destino final.</CardDescription></CardHeader>
-                  <CardContent className="space-y-4">
-                    <Textarea value={amazonTestUrls} onChange={(event) => { setAmazonTestUrls(event.target.value); setAmazonTestResult(null); }} rows={8} spellCheck={false} placeholder="https://www.amazon.com.br/.../dp/B08LY1BKFT\nhttps://amzn.to/..." className="min-h-52 resize-y rounded-xl font-mono text-xs leading-5" />
-                    <Button onClick={() => void testAmazonRequest()} disabled={amazonTestLoading} className="h-12 w-full rounded-xl bg-[#ff9900] font-bold text-[#111820] hover:bg-[#ffad33] sm:w-auto">{amazonTestLoading ? <LoaderCircle className="animate-spin" /> : <Link2 />} Gerar links da Amazon</Button>
-                  </CardContent>
-                </Card>
-
-                <Card className="h-fit border-[#27322b] bg-[#0b100d] text-white shadow-none">
-                  <CardHeader><CardTitle className="text-lg">Como o gerador trata o link</CardTitle><CardDescription>Você não precisa limpar a URL antes de colar.</CardDescription></CardHeader>
-                  <CardContent className="space-y-4 text-sm leading-6 text-[#aab5ad]">
-                    <div className="rounded-xl border border-[#3f3525] bg-[#17130d] p-4"><p className="font-bold text-[#ffb84d]">Produto identificado</p><p className="mt-1">Extrai o ASIN e cria <span className="break-all font-mono text-xs text-white">amazon.com.br/dp/ASIN?tag=SEU-ID</span>.</p></div>
-                    <div className="rounded-xl border border-[#27322b] bg-[#080c09] p-4"><p className="font-bold text-white">Link encurtado</p><p className="mt-1">Segue os redirecionamentos de amzn.to e outros encurtadores até encontrar a Amazon.</p></div>
-                    <div className="rounded-xl border border-[#27322b] bg-[#080c09] p-4"><p className="font-bold text-white">Página de serviço</p><p className="mt-1">Em links como Prime, preserva a página final e substitui o parâmetro <span className="font-mono text-xs">tag</span>.</p></div>
-                    <Button onClick={() => setActiveTab("affiliates")} variant="outline" className="w-full rounded-xl border-[#4a3a24] bg-[#211a11] text-white hover:bg-[#2d2316]"><Settings2 /> Configurar Tracking ID</Button>
-                  </CardContent>
-                </Card>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="mercadolivre" id="mercadolivre">
-              <div className="overflow-hidden rounded-2xl border border-[#d5c300] bg-[#ffe600] shadow-[0_14px_40px_rgba(93,82,0,.14)]">
-                <div className="flex flex-col gap-3 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-                  <div className="flex items-center gap-3">
-                    <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[#231f00] text-[#ffe600]"><KeyRound className="size-5" /></div>
-                    <div><h2 className="text-xl font-extrabold tracking-[-0.03em] text-[#231f00]">Gerador Mercado Livre</h2><p className="mt-1 text-sm text-[#655b00]">Converta links usando sua tag e sua sessão de afiliado.</p></div>
-                  </div>
-                  <div className={`flex w-fit items-center gap-2 rounded-full px-3 py-2 text-sm font-bold ${mlTestResult?.connected ? "bg-[#0b6b35] text-white" : "bg-[#231f00]/10 text-[#4c4500]"}`}>
-                    <span className={`size-2 rounded-full ${mlTestResult?.connected ? "bg-[#62ef8b]" : "bg-[#8b800e]"}`} />
-                    {mlTestResult?.connected ? "Sessão conectada" : mlSessionCookies ? "Sessão salva" : "Aguardando cookies"}
-                  </div>
-                </div>
-              </div>
-
-              {mlTestResult && (
-                <Card className={`mt-5 overflow-hidden ${mlTestResult.ok ? "border-[#287a43] bg-[#0b1710]" : "border-[#784235] bg-[#21110e]"}`}>
-                  <CardHeader className="border-b border-white/8"><CardTitle className="text-lg">{mlTestResult.ok ? "Links gerados" : `Não foi possível gerar${mlTestResult.upstreamStatus ? ` · HTTP ${mlTestResult.upstreamStatus}` : ""}`}</CardTitle><CardDescription>{mlTestResult.message}</CardDescription></CardHeader>
-                  <CardContent className="grid gap-3 pt-5 md:grid-cols-2">
-                    {mlTestResult.results?.map((item) => (
-                      <div key={item.originUrl} className="rounded-xl border border-white/10 bg-[#080c09] p-4">
-                        <p className="break-all text-xs leading-5 text-[#94a69b]">{item.originUrl}</p>
-                        <a href={item.shortUrl} target="_blank" rel="noreferrer" className="mt-3 block break-all text-sm font-bold text-[#62ef8b] underline underline-offset-2">{item.shortUrl}</a>
-                        <Button variant="outline" size="sm" onClick={() => { void navigator.clipboard.writeText(item.longUrl || item.shortUrl); toast.success("Link copiado."); }} className="mt-4 rounded-lg border-[#2b3830] bg-[#111813] text-white hover:bg-[#19231c]"><Copy /> Copiar link completo</Button>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-              )}
-
-              <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(320px,.72fr)]">
-                <Card className="border-[#dce7df] shadow-[0_10px_30px_rgba(7,20,22,.05)]">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-xl"><Cookie className="size-5 text-[#008f3d]" /> Credenciais da sessão</CardTitle>
-                    <CardDescription>A tag fica no painel e a sessão pode ser salva com criptografia para a automação.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-5">
-                    <label className="block space-y-2 text-sm font-semibold">Tag de afiliado<Input value={affiliate.mercadoLivreLabel} onChange={(event) => setAffiliate((value) => ({ ...value, mercadoLivreLabel: event.target.value }))} placeholder="promozap" className="h-12 rounded-xl" /></label>
-                    <label className="block space-y-2 text-sm font-semibold">
-                      <span className="flex items-center justify-between gap-3"><span>Cookies da sessão</span><button type="button" onClick={() => setMlCookiesVisible((value) => !value)} className="flex items-center gap-1.5 text-xs font-semibold text-[#62ef8b] hover:underline">{mlCookiesVisible ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}{mlCookiesVisible ? "Ocultar" : "Mostrar"}</button></span>
-                      <Textarea value={mlSessionCookies} onChange={(event) => { setMlSessionCookies(event.target.value); setMlTestResult(null); }} rows={4} spellCheck={false} placeholder={'Cole aqui o JSON exportado: [{ "domain": "...", "name": "...", "value": "..." }]'} className={`min-h-28 max-h-40 resize-y rounded-xl border-[#34423a] bg-[#080c09] font-mono text-xs leading-5 ${mlCookiesVisible ? "text-white" : "text-transparent caret-white selection:bg-[#245f36]"}`} />
-                    </label>
-                    <div className="flex gap-2 rounded-xl border border-[#244c31] bg-[#0d1d12] p-3 text-sm leading-6 text-[#a7cbb2]"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-[#52e579]" /><p>Os cookies ficam criptografados no servidor. Quando o Mercado Livre devolver cookies renovados durante uma conversão, o painel os atualiza e salva automaticamente. Se a sessão for encerrada pelo Mercado Livre, será necessário exportar uma nova sessão.</p></div>
-                    <div className="flex flex-col gap-2 sm:flex-row">
-                      <Button onClick={() => void saveAffiliate()} disabled={saving} variant="outline" className="h-11 rounded-xl border-[#2b3830] bg-[#111813] text-white hover:bg-[#19231c]">{saving ? <LoaderCircle className="animate-spin" /> : <BadgeCheck />} Salvar credenciais</Button>
-                      {mlSessionCookies && <Button onClick={() => { setMlSessionCookies(""); setMlTestResult(null); }} variant="ghost" className="h-11 rounded-xl text-[#8b2e1b]">Limpar sessão</Button>}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card className="h-fit border-[#dce7df] bg-[#071416] text-white shadow-[0_18px_50px_rgba(7,20,22,.16)]">
-                  <CardHeader><CardTitle className="text-xl">Produtos para converter</CardTitle><CardDescription className="text-white/55">Cole até 20 links, um em cada linha.</CardDescription></CardHeader>
-                  <CardContent className="space-y-4">
-                    <Textarea value={mlTestUrls} onChange={(event) => setMlTestUrls(event.target.value)} rows={7} placeholder="https://produto.mercadolivre.com.br/MLB-..." className="min-h-44 resize-y rounded-xl border-white/15 bg-white/8 text-white placeholder:text-white/35" />
-                    <Button onClick={() => void testMercadoLivreRequest()} disabled={mlTestLoading} className="h-12 w-full rounded-xl bg-[#ffe600] font-bold text-[#231f00] hover:bg-[#fff05a]">{mlTestLoading ? <LoaderCircle className="animate-spin" /> : <Link2 />} Gerar links de afiliado</Button>
-                    <Button asChild variant="outline" className="h-11 w-full rounded-xl border-white/15 bg-white/8 text-white hover:bg-white/14"><a href="https://www.mercadolivre.com.br/afiliados/linkbuilder#hub" target="_blank" rel="noreferrer"><ExternalLink /> Abrir gerador oficial</a></Button>
-                  </CardContent>
-                </Card>
-
-              </div>
-            </TabsContent>
-
-            <TabsContent value="whatsapp" id="whatsapp">
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
-                <Card className="overflow-hidden border-[#27322b] bg-[#0b100d] shadow-none">
-                  <CardHeader className="border-b border-[#27322b] px-5 py-4">
-                    <CardTitle className="flex items-center gap-2 text-base font-medium"><Smartphone className="size-4 text-[#62ef8b]" /> Credenciais UAZAPI</CardTitle>
-                    <CardDescription>Conecte a instância que será usada para monitorar e publicar nos grupos.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-5 p-5">
-                    <label className="block space-y-2 text-sm font-medium">URL do servidor<Input value={whatsapp.serverUrl} onChange={(event) => setWhatsapp((value) => ({ ...value, serverUrl: event.target.value }))} placeholder="https://free.uazapi.com" className="h-11 rounded-lg border-[#34423a] bg-[#080c09]" /></label>
-                    <label className="block space-y-2 text-sm font-medium">
-                      <span className="flex items-center justify-between"><span>Instance Token</span><button type="button" onClick={() => setWhatsappTokenVisible((value) => !value)} className="flex items-center gap-1.5 text-xs text-[#62ef8b] hover:underline">{whatsappTokenVisible ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}{whatsappTokenVisible ? "Ocultar" : "Mostrar"}</button></span>
-                      <Input type={whatsappTokenVisible ? "text" : "password"} value={whatsapp.instanceToken} onChange={(event) => { setWhatsapp((value) => ({ ...value, instanceToken: event.target.value })); setWhatsappConnected(false); }} placeholder="Cole o token da instância" className="h-11 rounded-lg border-[#34423a] bg-[#080c09] font-mono text-sm" />
-                    </label>
-                    <div className="flex gap-2 rounded-xl border border-[#244c31] bg-[#0d1d12] p-3 text-sm leading-6 text-[#a7cbb2]"><ShieldCheck className="mt-1 size-4 shrink-0 text-[#52e579]" /><p>As credenciais ficam salvas automaticamente neste navegador e são enviadas somente à UAZAPI informada.</p></div>
-                    <div className="flex flex-col gap-2 sm:flex-row">
-                      <Button onClick={() => void testWhatsappConnection()} disabled={whatsappTesting} className="h-11 rounded-lg bg-[#24c75a] px-5 text-[#04140a] hover:bg-[#46df75]">{whatsappTesting ? <LoaderCircle className="animate-spin" /> : <BadgeCheck />} Testar conexão</Button>
-                      <Button onClick={() => void setupUazapiWebhook()} disabled={webhookSettingUp || (!whatsapp.instanceToken && !whatsappConnected)} variant="outline" className="h-11 rounded-lg border-[#2e7041] bg-[#112a19] text-[#8ef1aa] hover:bg-[#183b24]">{webhookSettingUp ? <LoaderCircle className="animate-spin" /> : <Webhook />} Ativar automação</Button>
-                      {whatsapp.instanceToken && <Button onClick={() => { setWhatsapp(emptyWhatsApp); setWhatsappConnected(false); }} variant="outline" className="h-11 rounded-lg border-[#40302d] bg-[#17100e] text-[#ff9b92] hover:bg-[#211512]">Limpar credenciais</Button>}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <div className="space-y-4">
-                  <Card className="border-[#27322b] bg-[#0b100d] shadow-none">
-                    <CardHeader className="pb-3"><CardDescription>Status da conexão</CardDescription><CardTitle className="flex items-center gap-2 text-lg"><span className={`size-2.5 rounded-full ${whatsappConnected ? "bg-[#31d365] shadow-[0_0_0_5px_rgba(49,211,101,.12)]" : "bg-[#6f7771]"}`} />{whatsappConnected ? "Instância conectada" : "Aguardando teste"}</CardTitle></CardHeader>
-                    <CardContent className="space-y-3 text-sm text-[#94a69b]"><div className="flex justify-between gap-3 border-t border-[#27322b] pt-3"><span>Servidor</span><span className="truncate text-right text-white">{whatsapp.serverUrl || "Não informado"}</span></div><div className="flex justify-between gap-3"><span>Grupos encontrados</span><span className="font-medium text-white">{whatsappConnected ? groups.length : "—"}</span></div><div className="flex justify-between gap-3"><span>Webhook</span><span className={webhookActive ? "font-semibold text-[#62ef8b]" : "text-[#c5a96b]"}>{webhookActive ? "Ativo" : "Aguardando ativação"}</span></div><div className="flex justify-between gap-3"><span>Salvamento</span><span className="text-[#62ef8b]">Automático</span></div></CardContent>
+                <div className="grid gap-5 xl:grid-cols-2">
+                  <Card className="overflow-hidden border-[#27322b] bg-[#0b100d] shadow-none">
+                    <CardHeader className="border-b border-[#27322b]"><CardTitle className="flex items-center gap-2 text-lg"><Smartphone className="size-5 text-[#62ef8b]" /> UAZAPI</CardTitle><CardDescription>Instância usada para monitorar e publicar nos grupos.</CardDescription></CardHeader>
+                    <CardContent className="space-y-4 pt-5">
+                      <label className="block space-y-2 text-sm font-semibold">URL do servidor<Input value={whatsapp.serverUrl} onChange={(event) => setWhatsapp((value) => ({ ...value, serverUrl: event.target.value }))} placeholder="https://free.uazapi.com" className="h-11 border-[#34423a] bg-[#080c09]" /></label>
+                      <label className="block space-y-2 text-sm font-semibold"><span className="flex items-center justify-between"><span>Instance Token</span><button type="button" onClick={() => setWhatsappTokenVisible((value) => !value)} className="flex items-center gap-1.5 text-xs text-[#62ef8b]">{whatsappTokenVisible ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}{whatsappTokenVisible ? "Ocultar" : "Mostrar"}</button></span><Input type={whatsappTokenVisible ? "text" : "password"} value={whatsapp.instanceToken} onChange={(event) => { setWhatsapp((value) => ({ ...value, instanceToken: event.target.value })); setWhatsappConnected(false); }} placeholder="Cole o token da instância" className="h-11 border-[#34423a] bg-[#080c09] font-mono text-sm" /></label>
+                      <div className="flex flex-wrap gap-2"><Button onClick={() => void testWhatsappConnection()} disabled={whatsappTesting} className="bg-[#24c75a] font-bold text-[#04140a] hover:bg-[#46df75]">{whatsappTesting ? <LoaderCircle className="animate-spin" /> : <BadgeCheck />} Testar conexão</Button><Button onClick={() => void setupUazapiWebhook()} disabled={webhookSettingUp || (!whatsapp.instanceToken && !whatsappConnected)} variant="outline" className="border-[#2e7041] bg-[#112a19] text-[#8ef1aa]">{webhookSettingUp ? <LoaderCircle className="animate-spin" /> : <Webhook />} Ativar webhook</Button></div>
+                      <p className="text-xs leading-5 text-[#94a69b]">Salvamento automático neste navegador. Estado: <strong className={whatsappConnected ? "text-[#62ef8b]" : "text-[#e6c47d]"}>{whatsappConnected ? `conectado · ${groups.length} grupos` : "aguardando teste"}</strong>.</p>
+                    </CardContent>
                   </Card>
-                  <Card className="border-[#27322b] bg-[#0b100d] shadow-none"><CardHeader><CardTitle className="text-base">Próximo passo</CardTitle><CardDescription>Depois de conectar, abra “Grupos” para escolher as fontes, os destinos e as categorias.</CardDescription></CardHeader><CardContent><Button onClick={() => setActiveTab("groups")} variant="outline" className="w-full border-[#2b3830] bg-[#111813] text-white hover:bg-[#19231c]"><UsersRound /> Organizar grupos</Button></CardContent></Card>
-                </div>
-              </div>
 
-              <Card className="mt-4 overflow-hidden border-[#27322b] bg-[#0b100d] shadow-none">
-                <CardHeader className="border-b border-[#27322b] px-5 py-4">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div><CardTitle className="flex items-center gap-2 text-base font-medium"><MessageCircleMore className="size-4 text-[#62ef8b]" /> Botão de compra</CardTitle><CardDescription className="mt-1">A cada oferta, uma das frases ativas é escolhida aleatoriamente e recebe o link convertido.</CardDescription></div>
-                    <label className="flex w-fit items-center gap-3 rounded-xl border border-[#2d4234] bg-[#0d1811] px-3 py-2 text-sm font-medium text-[#d7e5da]"><Switch checked={buttonSettings.enabled} onCheckedChange={(enabled) => setButtonSettings((current) => ({ ...current, enabled }))} />{buttonSettings.enabled ? "Ativado" : "Desativado"}</label>
-                  </div>
-                </CardHeader>
-                <CardContent className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_300px]">
-                  <div className="space-y-4">
-                    <div className="flex flex-wrap gap-2">
-                      {buttonSettings.labels.map((label, index) => (
-                        <div key={`${label}-${index}`} className="flex items-center gap-2 rounded-full border border-[#35513e] bg-[#102018] py-1.5 pl-3 pr-1.5 text-sm font-semibold text-[#dff7e5]">
-                          <span>{label}</span>
-                          <button type="button" onClick={() => setButtonSettings((current) => ({ ...current, labels: current.labels.filter((_, itemIndex) => itemIndex !== index) }))} aria-label={`Remover ${label}`} className="grid size-6 place-items-center rounded-full text-[#93aa99] hover:bg-[#2b3b30] hover:text-white"><X className="size-3.5" /></button>
-                        </div>
-                      ))}
-                      {buttonSettings.labels.length === 0 && <p className="text-sm text-[#849188]">Nenhuma frase cadastrada.</p>}
-                    </div>
-                    <div className="flex flex-col gap-2 sm:flex-row">
-                      <Input value={buttonDraft} onChange={(event) => setButtonDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addButtonLabel(); } }} maxLength={25} placeholder="Ex.: GARANTIR DESCONTO" className="h-11 rounded-lg border-[#34423a] bg-[#080c09]" />
-                      <Button onClick={addButtonLabel} type="button" variant="outline" className="h-11 shrink-0 rounded-lg border-[#2e7041] bg-[#112a19] text-[#8ef1aa] hover:bg-[#183b24]"><Plus /> Adicionar</Button>
-                    </div>
-                    <p className="text-xs leading-5 text-[#7f9085]">Até 8 opções, com no máximo 25 caracteres. O link também continua no texto da mensagem como segurança.</p>
-                    <Button onClick={() => void saveButtonSettings()} disabled={buttonSettingsSaving} className="h-11 rounded-lg bg-[#24c75a] px-5 font-semibold text-[#04140a] hover:bg-[#46df75]">{buttonSettingsSaving ? <LoaderCircle className="animate-spin" /> : <BadgeCheck />} Salvar botões</Button>
-                  </div>
-                  <div className="rounded-2xl border border-[#26372d] bg-[#07100a] p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#6f8376]">Prévia no WhatsApp</p>
-                    <div className="mt-4 rounded-xl bg-[#0b2014] p-3 text-sm leading-6 text-[#e7f1e9] shadow-inner">🔥 Oferta encontrada<br />Link convertido pronto para comprar.</div>
-                    <div className="mt-2 grid min-h-11 place-items-center rounded-xl border border-[#275e37] bg-[#102b19] px-3 text-center text-sm font-bold text-[#67ed8b]">
-                      {buttonSettings.labels[0] || "COMPRAR AGORA"}
-                    </div>
-                    <p className="mt-3 text-center text-xs text-[#718078]">A frase muda aleatoriamente entre as opções cadastradas.</p>
-                  </div>
-                </CardContent>
-              </Card>
+                  <Card className="border-[#27322b] bg-[#0b100d] shadow-none">
+                    <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><Link2 className="size-5 text-[#62ef8b]" /> Afiliados</CardTitle><CardDescription>Identificadores aplicados automaticamente ao gerar promoções.</CardDescription></CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"><label className="space-y-2 text-sm font-semibold">Tracking ID da Amazon<Input value={affiliate.amazonTrackingId} onChange={(event) => setAffiliate((value) => ({ ...value, amazonTrackingId: event.target.value }))} placeholder="promozap07b-20" className="h-11 border-[#34423a] bg-[#080c09]" /></label><label className="flex h-11 items-center gap-2 rounded-xl border border-[#34423a] px-3 text-sm"><Switch checked={affiliate.amazonEnabled} onCheckedChange={(amazonEnabled) => setAffiliate((value) => ({ ...value, amazonEnabled }))} /> Ativo</label></div>
+                      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"><label className="space-y-2 text-sm font-semibold">Tag do Mercado Livre<Input value={affiliate.mercadoLivreLabel} onChange={(event) => setAffiliate((value) => ({ ...value, mercadoLivreLabel: event.target.value }))} placeholder="promozap" className="h-11 border-[#34423a] bg-[#080c09]" /></label><label className="flex h-11 items-center gap-2 rounded-xl border border-[#34423a] px-3 text-sm"><Switch checked={affiliate.mercadoLivreEnabled} onCheckedChange={(mercadoLivreEnabled) => setAffiliate((value) => ({ ...value, mercadoLivreEnabled }))} /> Ativo</label></div>
+                      <label className="block space-y-2 text-sm font-semibold">Domínio de redirecionamento<Input value={affiliate.redirectDomain} onChange={(event) => setAffiliate((value) => ({ ...value, redirectDomain: event.target.value }))} placeholder="https://go.promozap.com.br" className="h-11 border-[#34423a] bg-[#080c09]" /></label>
+                      <Button onClick={() => void saveAffiliate()} disabled={saving} className="bg-[#24c75a] font-bold text-[#04140a] hover:bg-[#46df75]">{saving ? <LoaderCircle className="animate-spin" /> : <BadgeCheck />} Salvar afiliados</Button>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="grid gap-5 xl:grid-cols-2">
+                  <Card className="border-[#27322b] bg-[#0b100d] shadow-none">
+                    <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><Cookie className="size-5 text-[#62ef8b]" /> Sessão do Mercado Livre</CardTitle><CardDescription>Cookies usados somente para gerar o link curto oficial.</CardDescription></CardHeader>
+                    <CardContent className="space-y-4">
+                      <label className="block space-y-2 text-sm font-semibold"><span className="flex items-center justify-between"><span>Cookies da sessão</span><button type="button" onClick={() => setMlCookiesVisible((value) => !value)} className="flex items-center gap-1.5 text-xs text-[#62ef8b]">{mlCookiesVisible ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}{mlCookiesVisible ? "Ocultar" : "Mostrar"}</button></span><Textarea value={mlSessionCookies} onChange={(event) => setMlSessionCookies(event.target.value)} rows={4} spellCheck={false} placeholder={'[{ "domain": "...", "name": "...", "value": "..." }]'} className={`min-h-28 resize-y border-[#34423a] bg-[#080c09] font-mono text-xs ${mlCookiesVisible ? "text-white" : "text-transparent caret-white"}`} /></label>
+                      <div className="rounded-xl border border-[#244c31] bg-[#0d1d12] p-3 text-xs leading-5 text-[#a7cbb2]">Os cookies são criptografados no servidor e atualizados quando o Mercado Livre renova a sessão.</div>
+                      <Button onClick={() => void saveAffiliate()} disabled={saving} variant="outline" className="border-[#2e7041] bg-[#112a19] text-[#8ef1aa]">{saving ? <LoaderCircle className="animate-spin" /> : <ShieldCheck />} Salvar sessão</Button>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="border-[#27322b] bg-[#0b100d] shadow-none">
+                    <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><Database className="size-5 text-[#62ef8b]" /> APIs de catálogo</CardTitle><CardDescription>Credenciais para consulta estruturada de produtos.</CardDescription></CardHeader>
+                    <CardContent className="space-y-3">
+                      <Input value={amazonClientId} onChange={(event) => setAmazonClientId(event.target.value)} placeholder="Amazon Credential ID" className="h-11 border-[#34423a] bg-[#080c09]" />
+                      <Input type="password" value={amazonClientSecret} onChange={(event) => setAmazonClientSecret(event.target.value)} placeholder="Amazon Credential Secret" className="h-11 border-[#34423a] bg-[#080c09]" />
+                      <Input value={mercadoLivreClientId} onChange={(event) => setMercadoLivreClientId(event.target.value)} placeholder="Mercado Livre Client ID" className="h-11 border-[#34423a] bg-[#080c09]" />
+                      <Input type="password" value={mercadoLivreClientSecret} onChange={(event) => setMercadoLivreClientSecret(event.target.value)} placeholder="Mercado Livre Client Secret" className="h-11 border-[#34423a] bg-[#080c09]" />
+                      <Input type="password" value={mercadoLivreAccessToken} onChange={(event) => setMercadoLivreAccessToken(event.target.value)} placeholder="Access Token temporário (opcional)" className="h-11 border-[#34423a] bg-[#080c09]" />
+                      <div className="flex flex-wrap gap-2"><Button onClick={() => void saveCatalogCredentials()} disabled={catalogCredentialsSaving} variant="outline" className="border-[#2e7041] bg-[#112a19] text-[#8ef1aa]">{catalogCredentialsSaving ? <LoaderCircle className="animate-spin" /> : <ShieldCheck />} Salvar APIs</Button><Button onClick={() => void connectMercadoLivre()} disabled={mercadoLivreConnecting} className="bg-[#ffe600] font-bold text-[#231f00] hover:bg-[#fff05a]">{mercadoLivreConnecting ? <LoaderCircle className="animate-spin" /> : <ExternalLink />} Conectar Mercado Livre</Button></div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Card className="border-[#27322b] bg-[#0b100d] shadow-none">
+                  <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><PackageSearch className="size-5 text-[#62ef8b]" /> Coletor local</CardTitle><CardDescription>Endereço e token do navegador que extrai preço, cupom e avaliações.</CardDescription></CardHeader>
+                  <CardContent className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end"><label className="space-y-2 text-sm font-semibold">URL do coletor<Input value={localCollectorUrl} onChange={(event) => setLocalCollectorUrl(event.target.value)} placeholder="http://127.0.0.1:8765" className="h-11 border-[#34423a] bg-[#080c09]" /></label><label className="space-y-2 text-sm font-semibold">Token do coletor<Input type="password" value={localCollectorToken} onChange={(event) => setLocalCollectorToken(event.target.value)} placeholder="Token exibido no coletor" className="h-11 border-[#34423a] bg-[#080c09]" /></label><Button onClick={() => void checkLocalCollector(true)} variant="outline" className="h-11 border-[#2e7041] bg-[#112a19] text-[#8ef1aa]"><RefreshCw /> Testar</Button></CardContent>
+                </Card>
+
+                <Card className="border-[#27322b] bg-[#0b100d] shadow-none">
+                  <CardHeader><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><CardTitle className="flex items-center gap-2 text-lg"><MessageCircleMore className="size-5 text-[#62ef8b]" /> Botão de compra</CardTitle><CardDescription>Frases opcionais escolhidas aleatoriamente nos envios compatíveis.</CardDescription></div><label className="flex items-center gap-2 text-sm"><Switch checked={buttonSettings.enabled} onCheckedChange={(enabled) => setButtonSettings((current) => ({ ...current, enabled }))} /> {buttonSettings.enabled ? "Ativado" : "Desativado"}</label></div></CardHeader>
+                  <CardContent className="space-y-4"><div className="flex flex-wrap gap-2">{buttonSettings.labels.map((label, index) => <div key={`${label}-${index}`} className="flex items-center gap-2 rounded-full border border-[#35513e] bg-[#102018] py-1.5 pl-3 pr-1.5 text-sm font-semibold"><span>{label}</span><button type="button" onClick={() => setButtonSettings((current) => ({ ...current, labels: current.labels.filter((_, itemIndex) => itemIndex !== index) }))} className="grid size-6 place-items-center rounded-full hover:bg-[#2b3b30]"><X className="size-3.5" /></button></div>)}</div><div className="flex flex-col gap-2 sm:flex-row"><Input value={buttonDraft} onChange={(event) => setButtonDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addButtonLabel(); } }} maxLength={25} placeholder="Ex.: GARANTIR DESCONTO" className="h-11 border-[#34423a] bg-[#080c09]" /><Button onClick={addButtonLabel} variant="outline" className="border-[#2e7041] bg-[#112a19] text-[#8ef1aa]"><Plus /> Adicionar</Button><Button onClick={() => void saveButtonSettings()} disabled={buttonSettingsSaving} className="bg-[#24c75a] font-bold text-[#04140a]">{buttonSettingsSaving ? <LoaderCircle className="animate-spin" /> : <BadgeCheck />} Salvar</Button></div></CardContent>
+                </Card>
+              </div>
             </TabsContent>
 
-            <TabsContent value="automation" id="automacao">
-              <Card className="border-[#dce7df] shadow-[0_10px_30px_rgba(7,20,22,.05)]">
-                <CardHeader><CardTitle className="text-xl">Fluxo de automação</CardTitle><CardDescription>Visão do que acontecerá com cada mensagem recebida.</CardDescription></CardHeader>
-                <CardContent>
-                  <div className="grid gap-3 md:grid-cols-4">
-                    {[
-                      ["1", "Capturar", "Receber ofertas dos grupos marcados como fonte."],
-                      ["2", "Validar", "Encontrar Amazon ou Mercado Livre e evitar duplicados."],
-                      ["3", "Converter", "Aplicar seu link e montar o texto Promozap."],
-                      ["4", "Publicar", "Enviar para o grupo escolhido na categoria."],
-                    ].map(([step, title, description]) => (
-                      <div key={step} className="relative rounded-2xl border border-[#e2eae5] bg-[#f8fbf9] p-4">
-                        <span className="mb-6 flex size-8 items-center justify-center rounded-lg bg-[#071416] text-sm font-bold text-[#25e83f]">{step}</span>
-                        <p className="font-bold">{title}</p><p className="mt-2 text-sm leading-6 text-[#66736c]">{description}</p>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-[#bfe9cc] bg-[#ebfaef] p-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex gap-3"><Webhook className="mt-0.5 size-5 text-[#008f3d]" /><div><p className="font-bold">Envio automático pela UAZAPI</p><p className="mt-1 text-sm text-[#52705d]">Mensagens dos grupos-fonte são convertidas e enviadas ao destino configurado.</p></div></div>
-                    <Button onClick={() => void setupUazapiWebhook()} disabled={webhookSettingUp} variant="outline" className="h-11 rounded-xl border-[#91d7a8] bg-white text-[#102016]">{webhookSettingUp ? <LoaderCircle className="animate-spin" /> : <Webhook />} {webhookActive ? "Reativar webhook" : "Ativar webhook"}</Button>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="mt-5 overflow-hidden border-[#27322b] bg-[#080c09] text-white shadow-none">
+            <TabsContent value="logs" id="logs">
+              <Card className="overflow-hidden border-[#27322b] bg-[#080c09] text-white shadow-none">
                 <CardHeader className="grid gap-3 border-b border-[#27322b] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                   <div><CardTitle className="flex items-center gap-2 text-lg"><ScrollText className="size-5 text-[#62ef8b]" /> Log provisório da UAZAPI</CardTitle><CardDescription className="mt-1 text-[#94a69b]">Atualiza automaticamente a cada seis segundos.</CardDescription></div>
                   <Button onClick={() => void loadAutomationLogs()} disabled={logsLoading} variant="outline" className="h-10 rounded-lg border-[#34423a] bg-[#111813] text-white hover:bg-[#19231c]"><RefreshCw className={logsLoading ? "animate-spin" : ""} /> Atualizar</Button>
