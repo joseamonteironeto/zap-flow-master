@@ -1,6 +1,5 @@
 import { env } from "cloudflare:workers";
 import { NextResponse } from "next/server";
-import { getAmazonProductVisual } from "@/lib/amazon-product";
 import { getMercadoLivreProductVisual } from "@/lib/mercadolivre-product";
 import { readIntegrationSecret } from "@/lib/integration-secret";
 
@@ -19,16 +18,12 @@ export async function POST(request: Request) {
     SELECT id, store, product_code AS productCode, resolved_url AS resolvedUrl
     FROM product_events WHERE id = ?
   `).bind(id).first<{ id: string; store: string; productCode: string | null; resolvedUrl: string | null }>();
-  if (!product?.productCode || !product.resolvedUrl || !["amazon", "mercadolivre"].includes(product.store)) {
+  if (!product?.productCode || !product.resolvedUrl || product.store !== "mercadolivre") {
     return NextResponse.json({ error: "Este registro não possui um produto compatível." }, { status: 422 });
   }
 
-  const cookies = product.store === "mercadolivre"
-    ? await readIntegrationSecret("mercadolivre_session_cookies") || runtime.MERCADOLIVRE_SESSION_COOKIES
-    : undefined;
-  const visual = product.store === "amazon"
-    ? await getAmazonProductVisual(product.productCode, product.resolvedUrl)
-    : await getMercadoLivreProductVisual(product.productCode, product.resolvedUrl, cookies);
+  const cookies = await readIntegrationSecret("mercadolivre_session_cookies") || runtime.MERCADOLIVRE_SESSION_COOKIES;
+  const visual = await getMercadoLivreProductVisual(product.productCode, product.resolvedUrl, cookies);
   if (!visual.details && !visual.imageUrl && !visual.title) {
     return NextResponse.json({ error: "A loja não retornou dados adicionais agora." }, { status: 502 });
   }

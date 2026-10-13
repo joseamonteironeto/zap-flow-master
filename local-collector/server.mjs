@@ -396,11 +396,14 @@ const reviewExtractor = String.raw`(() => {
     const country = headerLines.find((line) => !/avaliação|há\s+\d|ontem|hoje|traduzido/i.test(line) && !/^\d(?:[.,]\d)?$/.test(line)) || null;
     const images = [...new Set([...comment.querySelectorAll('img[alt*="Foto do produto compartilhada" i], img[src*="mlstatic.com"]')]
       .map((img) => img.currentSrc || img.src).filter(Boolean))].slice(0, 12);
+    const videos = [...new Set([...comment.querySelectorAll('video[src], video source[src], [data-video-url], [data-video-src]')]
+      .map((node) => node.currentSrc || node.src || node.getAttribute('data-video-url') || node.getAttribute('data-video-src'))
+      .filter((url) => url && /^https:\/\//i.test(url)))].slice(0, 4);
     const usefulLabel = [...comment.querySelectorAll('[aria-label]')].map((node) => node.getAttribute('aria-label'))
       .find((value) => /pessoa.*achou|útil/i.test(value || '')) || '';
     const usefulCount = Number(usefulLabel.match(/(\d+)/)?.[1]) || 0;
-    return { position: index + 1, rating, country, date, text, images, usefulCount };
-  }).filter((review) => review.text || review.images.length);
+    return { position: index + 1, rating, country, date, text, images, videos, usefulCount };
+  }).filter((review) => review.text || review.images.length || review.videos.length);
   const pageText = document.body?.innerText || '';
   const total = Number(pageText.match(/Todas as opiniões\s*\(([\d.]+)\)/i)?.[1]?.replace(/\./g, ''))
     || Number(pageText.match(/([\d.]+)\s+opiniões/i)?.[1]?.replace(/\./g, '')) || null;

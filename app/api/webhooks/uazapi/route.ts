@@ -95,10 +95,7 @@ function trustedCatalogImage(store: string | undefined, imageUrl: string | null 
     if (url.protocol !== "https:") return null;
     const hostname = url.hostname.toLowerCase();
     const trusted = store === "mercadolivre"
-      ? hostname === "mlstatic.com" || hostname.endsWith(".mlstatic.com") || hostname === "mercadolivre.com.br" || hostname.endsWith(".mercadolivre.com.br")
-      : store === "amazon"
-        ? hostname === "media-amazon.com" || hostname.endsWith(".media-amazon.com") || hostname === "ssl-images-amazon.com" || hostname.endsWith(".ssl-images-amazon.com")
-        : false;
+      && (hostname === "mlstatic.com" || hostname.endsWith(".mlstatic.com") || hostname === "mercadolivre.com.br" || hostname.endsWith(".mercadolivre.com.br"));
     if (!trusted) return null;
     if (store === "mercadolivre" && url.pathname.toLowerCase().endsWith(".webp")) {
       url.pathname = url.pathname.replace(/\.webp$/i, ".jpg");
@@ -107,7 +104,7 @@ function trustedCatalogImage(store: string | undefined, imageUrl: string | null 
     return {
       file: url.toString(),
       mimetype: extension.endsWith(".webp") ? "image/webp" : extension.endsWith(".png") ? "image/png" : "image/jpeg",
-      source: store === "amazon" ? "amazon_catalog_cache" : "mercadolivre_catalog_cache",
+      source: "mercadolivre_catalog_cache",
     };
   } catch {
     return null;
@@ -214,11 +211,10 @@ export async function POST(request: Request) {
     const officialProductImage = trustedCatalogImage(primaryProduct?.store, primaryProduct?.imageUrl);
     const outgoingImage = officialProductImage;
     if (officialProductImage) {
-      const storeName = primaryProduct.store === "amazon" ? "Amazon" : "Mercado Livre";
       await automationLog({
         level: "success",
         stage: "product_image",
-        message: `Imagem oficial da ${storeName} encontrada para ${primaryProduct.productCode}.`,
+        message: `Imagem oficial do Mercado Livre encontrada para ${primaryProduct.productCode}.`,
         groupJid: extracted.chatJid,
         productId: primaryProduct.id,
         details: { productCode: primaryProduct.productCode, imageUrl: primaryProduct.imageUrl, mediaSource: officialProductImage.source, ignoredIncomingImage: extracted.isImage },
@@ -265,7 +261,7 @@ export async function POST(request: Request) {
     await automationLog({
       level: "success",
       stage: "sent",
-      message: `Oferta enviada ao grupo de destino (${converted.length} produto(s))${officialProductImage ? ` com a foto oficial da ${primaryProduct.store === "amazon" ? "Amazon" : "Mercado Livre"}` : " sem foto"}.`,
+      message: `Oferta enviada ao grupo de destino (${converted.length} produto(s))${officialProductImage ? " com a foto oficial do Mercado Livre" : " sem foto"}.`,
       groupJid: route.destinationJid,
       details: {
         sourceGroup: extracted.chatJid,
