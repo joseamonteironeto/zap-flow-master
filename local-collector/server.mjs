@@ -482,6 +482,33 @@ const affiliateHubExtractor = `(() => {
     return match ? Number(\`\${match[1].replace(/\\./g, '')}.\${match[2] || '0'}\`) : null;
   };
   const clean = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
+  const imageUrl = (root) => {
+    if (!root) return null;
+    const candidates = [];
+    for (const image of root.querySelectorAll('img,source')) {
+      const srcset = image.getAttribute('srcset') || image.getAttribute('data-srcset') || '';
+      candidates.push(
+        image.currentSrc,
+        image.getAttribute('data-src'),
+        image.getAttribute('data-lazy-src'),
+        image.getAttribute('data-original'),
+        ...srcset.split(',').map((candidate) => candidate.trim().split(/\\s+/)[0]).filter(Boolean).reverse(),
+        image.getAttribute('src'),
+        image.src,
+      );
+    }
+    for (const node of root.querySelectorAll('[style*="background-image"]')) {
+      const background = getComputedStyle(node).backgroundImage || node.style.backgroundImage || '';
+      const match = background.match(/url\\(["']?([^"')]+)["']?\\)/i);
+      if (match?.[1]) candidates.push(match[1]);
+    }
+    const valid = [];
+    for (const candidate of candidates) {
+      if (!candidate || /^data:|^blob:/i.test(candidate)) continue;
+      try { valid.push(new URL(candidate, location.href).href); } catch {}
+    }
+    return valid.find((candidate) => /mlstatic\\.com/i.test(candidate)) || valid[0] || null;
+  };
   const links = [...document.querySelectorAll('a[href]')].filter((link) => {
     const href = link.href || '';
     return /mercadolivre\\.com\\.br\\/(?:[^?#]+\\/)*(?:p|up)\\/MLBU?\\d+/i.test(href)
@@ -497,11 +524,18 @@ const affiliateHubExtractor = `(() => {
       || href.match(/\\/(?:p|up)\\/(MLBU?\\d+)/i);
     const itemId = itemMatch ? (String(itemMatch[1]).startsWith('MLB') ? itemMatch[1] : 'MLB' + itemMatch[1]) : href;
     if (seen.has(itemId)) continue;
-    let card = link.closest('li, article, [class*="card"], [class*="item"]');
-    if (!card || clean(card.innerText).length < 30) card = link.parentElement?.parentElement?.parentElement || link.parentElement;
+    let card = null;
+    let textualCard = null;
+    let ancestor = link;
+    for (let depth = 0; ancestor && depth < 10; depth += 1, ancestor = ancestor.parentElement) {
+      const ancestorText = clean(ancestor.innerText);
+      if (ancestorText.length < 30 || !/R\\$|GANHOS|vendidos|Classifica/i.test(ancestorText)) continue;
+      textualCard ||= ancestor;
+      if (imageUrl(ancestor)) { card = ancestor; break; }
+    }
+    card ||= textualCard || link.closest('li, article, [class*="card"]') || link.parentElement;
     const text = clean(card?.innerText || link.innerText);
     if (!text || !/R\\$|GANHOS|vendidos|Classifica/i.test(text)) continue;
-    const image = card?.querySelector('img');
     const heading = card?.querySelector('h1,h2,h3,h4,[class*="title"]');
     const title = clean(heading?.textContent || link.getAttribute('aria-label') || link.textContent).replace(/^Ir para /i, '');
     const priceMatches = [...text.matchAll(/R\\$\\s*[\\d.]+\\s*(?:,\\s*\\d{1,2})?/gi)]
@@ -520,7 +554,7 @@ const affiliateHubExtractor = `(() => {
     const rating = Number(text.match(/Classifica(?:ção|cao)[^\\d]*([1-5](?:[.,]\\d)?)/i)?.[1]?.replace(',', '.') || 0) || null;
     const soldText = text.match(/(?:Mais de\\s+)?[\\d.,]+\\s*(?:mil\\s+)?vendidos/i)?.[0] || null;
     const badge = text.match(/(?:MAIS BUSCADO|MAIS VENDIDO|OFERTA IMPERD[IÍ]VEL|GANHOS EXTRAS|OFERTA DO DIA)/i)?.[0] || null;
-    products.push({ itemId, title: title || 'Oferta Mercado Livre', url: href, imageUrl: image?.currentSrc || image?.src || null,
+    products.push({ itemId, title: title || 'Oferta Mercado Livre', url: href, imageUrl: imageUrl(card),
       price: current, effectivePrice: current, originalPrice: previous, discountPercentage: calculatedDiscount,
       affiliateEarningsPercentage: earnings, rating, soldText, badge, coupon: /cupom/i.test(text) ? { available: true, text: text.match(/[^.]{0,35}cupom[^.]{0,55}/i)?.[0] || 'Cupom disponível' } : null,
       freeShipping: /frete gr[aá]tis/i.test(text), sourceText: text });
@@ -552,7 +586,10 @@ async function scanAffiliateHub() {
       const result = await client.call("Runtime.evaluate", { expression: affiliateHubExtractor, returnByValue: true });
       for (const product of result?.result?.value?.products || []) {
         const key = product.itemId || product.url;
-        if (key) collected.set(key, { ...(collected.get(key) || {}), ...product });
+        if (key) {
+          const previous = collected.get(key) || {};
+          collected.set(key, { ...previous, ...product, imageUrl: product.imageUrl || previous.imageUrl || null });
+        }
       }
       const movement = await client.call("Runtime.evaluate", { expression: `(() => {
         const visible = (element) => {
@@ -585,7 +622,10 @@ async function scanAffiliateHub() {
     if (evaluation?.exceptionDetails) throw new Error("Não foi possível ler os cartões do Hub de Afiliados.");
     for (const product of evaluation?.result?.value?.products || []) {
       const key = product.itemId || product.url;
-      if (key) collected.set(key, { ...(collected.get(key) || {}), ...product });
+      if (key) {
+        const previous = collected.get(key) || {};
+        collected.set(key, { ...previous, ...product, imageUrl: product.imageUrl || previous.imageUrl || null });
+      }
     }
     const raw = [...collected.values()];
     if (!raw.length) throw new Error("Nenhuma oferta foi encontrada no Hub. Confirme se a seção ‘Produtos selecionados para você’ está visível na janela do coletor.");
