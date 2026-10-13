@@ -7,23 +7,24 @@
 @utility scrollbar-gutter-stable { scrollbar-gutter: stable; }
 
 :root {
-  --background: #030504;
-  --foreground: #f4fff6;
-  --card: #0b100d;
-  --card-foreground: #f4fff6;
-  --popover: #0b100d;
-  --popover-foreground: #f4fff6;
+  color-scheme: light;
+  --background: #f6f9f7;
+  --foreground: #17221b;
+  --card: #ffffff;
+  --card-foreground: #17221b;
+  --popover: #ffffff;
+  --popover-foreground: #17221b;
   --primary: #00c853;
   --primary-foreground: #04140a;
-  --secondary: #142219;
-  --secondary-foreground: #72f295;
-  --muted: #151b17;
-  --muted-foreground: #94a69b;
-  --accent: #16251b;
-  --accent-foreground: #72f295;
+  --secondary: #e8f4eb;
+  --secondary-foreground: #176b35;
+  --muted: #edf3ef;
+  --muted-foreground: #637168;
+  --accent: #e2f5e7;
+  --accent-foreground: #176b35;
   --destructive: #e5484d;
-  --border: #27322b;
-  --input: #34423a;
+  --border: #d7e1da;
+  --input: #cbd8cf;
   --ring: #00a947;
   --chart-1: #00c853;
   --chart-2: #008f3d;
@@ -31,13 +32,13 @@
   --chart-4: #f5b700;
   --chart-5: #25e83f;
   --radius: 0.8rem;
-  --sidebar: #070a08;
-  --sidebar-foreground: #ffffff;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #17221b;
   --sidebar-primary: #00c853;
   --sidebar-primary-foreground: #04140a;
-  --sidebar-accent: #123026;
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #26342c;
+  --sidebar-accent: #e2f5e7;
+  --sidebar-accent-foreground: #176b35;
+  --sidebar-border: #d7e1da;
   --sidebar-ring: #25e83f;
 }
 
@@ -133,9 +134,13 @@ button, input, select { font: inherit; }
   --ring: #23b957;
 }
 .promozap-light [class~="bg-[#070a08]"],
+.promozap-light [class~="bg-[#07100a]"],
 .promozap-light [class~="bg-[#0b100d]"],
 .promozap-light [class~="bg-[#0d1310]"],
 .promozap-light [class~="bg-[#080c09]"],
+.promozap-light [class~="bg-[#09100c]"],
+.promozap-light [class~="bg-[#050806]"],
+.promozap-light [class~="bg-[#0d1711]"],
 .promozap-light [class~="bg-[#101612]"],
 .promozap-light [class~="bg-[#111813]"],
 .promozap-light [class~="bg-[#111512]"],
@@ -151,7 +156,13 @@ button, input, select { font: inherit; }
 .promozap-light [class~="border-[#27322b]"],
 .promozap-light [class~="border-[#2a3730]"],
 .promozap-light [class~="border-[#2b3830]"],
-.promozap-light [class~="border-[#34423a]"] { border-color: #d7e1da !important; }
+.promozap-light [class~="border-[#34423a]"],
+.promozap-light [class~="border-[#26372d]"],
+.promozap-light [class~="border-[#213028]"],
+.promozap-light [class~="border-[#35483d]"],
+.promozap-light [class~="border-[#34483c]"],
+.promozap-light [class~="border-[#3d6a4b]"],
+.promozap-light [class~="border-[#31543b]"] { border-color: #d7e1da !important; }
 .promozap-light [class~="text-white"],
 .promozap-light [class~="text-white/70"],
 .promozap-light [class~="text-white/72"],
@@ -159,7 +170,11 @@ button, input, select { font: inherit; }
 .promozap-light [class~="text-white/45"] { color: #17221b !important; }
 .promozap-light [class~="text-[#94a69b]"],
 .promozap-light [class~="text-[#a7afa9]"],
-.promozap-light [class~="text-[#a7cbb2]"] { color: #637168 !important; }
+.promozap-light [class~="text-[#a7cbb2]"],
+.promozap-light [class~="text-[#829389]"],
+.promozap-light [class~="text-[#aebbb3]"],
+.promozap-light [class~="text-[#63746a]"],
+.promozap-light [class~="text-[#9eeab3]"] { color: #637168 !important; }
 .promozap-light [class~="bg-white/10"],
 .promozap-light [class~="bg-white/8"],
 .promozap-light [class~="bg-white/6"] { background-color: #eef5f0 !important; }

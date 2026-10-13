@@ -65,7 +65,7 @@ export async function POST(request: Request) {
       {
         text: messageText,
         image: imageUrl,
-        buttons: [],
+        buttons: productUrl ? [{ id: productUrl, text: "VER OFERTA", type: "URL" }] : [],
       },
       ...reviewCards.map((review) => ({
         text: review.text,
