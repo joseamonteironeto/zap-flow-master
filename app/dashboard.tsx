@@ -86,6 +86,12 @@ type AutomationButtonSettings = {
   labels: string[];
 };
 
+type OfferTemplatePreset = {
+  id: string;
+  name: string;
+  content: string;
+};
+
 type MercadoLivreTestResult = {
   ok: boolean;
   connected?: boolean;
@@ -317,7 +323,7 @@ const emptyWhatsApp: WhatsAppSettings = {
 
 const defaultAutomationButtons: AutomationButtonSettings = {
   enabled: true,
-  labels: ["COMPRAR AGORA", "ADQUIRA JÁ", "LINK COM DESCONTO", "APROVEITAR OFERTA", "VER PROMOÇÃO"],
+  labels: ["VER OFERTA", "COMPRAR AGORA", "ADQUIRA JÁ", "LINK COM DESCONTO", "APROVEITAR OFERTA", "VER PROMOÇÃO"],
 };
 
 function initials(name: string) {
@@ -512,7 +518,12 @@ export default function Dashboard() {
   const [offerPreparing, setOfferPreparing] = useState(false);
   const [offerSending, setOfferSending] = useState(false);
   const [offerTemplate, setOfferTemplate] = useState(defaultOfferTemplate);
+  const [offerTemplates, setOfferTemplates] = useState<OfferTemplatePreset[]>([{ id: "padrao", name: "Padrão", content: defaultOfferTemplate }]);
+  const [activeOfferTemplateId, setActiveOfferTemplateId] = useState("padrao");
+  const [offerTemplateName, setOfferTemplateName] = useState("Padrão");
   const [templateSavedAt, setTemplateSavedAt] = useState<string | null>(null);
+  const [carouselEnabled, setCarouselEnabled] = useState(true);
+  const [carouselButtonLabel, setCarouselButtonLabel] = useState("VER OFERTA");
   const [promotionInput, setPromotionInput] = useState("");
   const [promotionItem, setPromotionItem] = useState<CatalogItem | null>(null);
   const [promotionModalOpen, setPromotionModalOpen] = useState(false);
@@ -614,10 +625,28 @@ export default function Dashboard() {
     const savedUrl = window.localStorage.getItem("promozap.localCollectorUrl");
     const savedToken = window.localStorage.getItem("promozap.localCollectorToken");
     const savedTemplate = window.localStorage.getItem("promozap.offerTemplate.v1");
+    const savedTemplates = window.localStorage.getItem("promozap.offerTemplates.v2");
+    const savedActiveTemplate = window.localStorage.getItem("promozap.offerTemplates.active.v2");
+    const savedCarouselEnabled = window.localStorage.getItem("promozap.carousel.enabled.v1");
+    const savedCarouselButton = window.localStorage.getItem("promozap.carousel.buttonLabel.v1");
     const savedHubSettings = window.localStorage.getItem("promozap.affiliateHub.settings.v1");
     if (savedUrl) setLocalCollectorUrl(savedUrl);
     if (savedToken) setLocalCollectorToken(savedToken);
-    if (savedTemplate) setOfferTemplate(savedTemplate);
+    let initialTemplates: OfferTemplatePreset[] = [{ id: "padrao", name: "Padrão", content: savedTemplate || defaultOfferTemplate }];
+    if (savedTemplates) {
+      try {
+        const parsed = JSON.parse(savedTemplates) as OfferTemplatePreset[];
+        const valid = Array.isArray(parsed) ? parsed.filter((item) => item && typeof item.id === "string" && typeof item.name === "string" && typeof item.content === "string").slice(0, 10) : [];
+        if (valid.length) initialTemplates = valid;
+      } catch {}
+    }
+    const initialActive = initialTemplates.find((item) => item.id === savedActiveTemplate) || initialTemplates[0];
+    setOfferTemplates(initialTemplates);
+    setActiveOfferTemplateId(initialActive.id);
+    setOfferTemplateName(initialActive.name);
+    setOfferTemplate(initialActive.content);
+    if (savedCarouselEnabled === "false") setCarouselEnabled(false);
+    if (savedCarouselButton?.trim()) setCarouselButtonLabel(savedCarouselButton.trim().slice(0, 25));
     if (savedHubSettings) {
       try {
         const settings = JSON.parse(savedHubSettings) as { interval?: string; destination?: string };
@@ -1326,7 +1355,7 @@ export default function Dashboard() {
     setPromotionSending(true);
     let sent = 0;
     const failures: string[] = [];
-    const reviewCards = (promotionItem.reviews || []).flatMap((review) => {
+    const reviewCards = carouselEnabled ? (promotionItem.reviews || []).flatMap((review) => {
       const firstMedia = review.media?.[0]
         || (review.videos?.[0] ? { type: "video" as const, url: review.videos[0] } : null)
         || (review.images?.[0] ? { type: "image" as const, url: review.images[0] } : null);
@@ -1336,13 +1365,14 @@ export default function Dashboard() {
         imageUrl: firstMedia.type === "image" ? firstMedia.url : undefined,
         videoUrl: firstMedia.type === "video" ? firstMedia.url : undefined,
       }];
-    }).slice(0, 4);
+    }).slice(0, 4) : [];
+    const selectedButtonLabel = carouselButtonLabel.trim() || "VER OFERTA";
     for (const destinationJid of promotionGroups) {
       try {
         const response = await fetch("/api/offers/send", {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Promozap-Admin-Token": whatsapp.instanceToken.trim() },
-          body: JSON.stringify({ destinationJid, text: promotionMessage, imageUrl: promotionItem.imageUrl, includeImage: promotionIncludeImage, reviewCards, productUrl: promotionItem.url, productId: promotionItem.itemId || promotionItem.id }),
+          body: JSON.stringify({ destinationJid, text: promotionMessage, imageUrl: promotionItem.imageUrl, includeImage: promotionIncludeImage, reviewCards, carouselEnabled, carouselButtonLabel: selectedButtonLabel, productUrl: promotionItem.url, productId: promotionItem.itemId || promotionItem.id }),
         });
         const result = await response.json() as { error?: string };
         if (!response.ok) throw new Error(result.error || "Falha no envio.");
@@ -1361,9 +1391,65 @@ export default function Dashboard() {
   }
 
   function saveOfferTemplate() {
+    const name = offerTemplateName.trim() || "Modelo sem nome";
+    const next = offerTemplates.map((item) => item.id === activeOfferTemplateId ? { ...item, name, content: offerTemplate } : item);
+    setOfferTemplates(next);
+    setOfferTemplateName(name);
+    window.localStorage.setItem("promozap.offerTemplates.v2", JSON.stringify(next));
+    window.localStorage.setItem("promozap.offerTemplates.active.v2", activeOfferTemplateId);
     window.localStorage.setItem("promozap.offerTemplate.v1", offerTemplate);
     setTemplateSavedAt(new Date().toISOString());
-    toast.success("Modelo de mensagem salvo neste navegador.");
+    toast.success(`Modelo “${name}” salvo neste navegador.`);
+  }
+
+  function saveOfferTemplateAsNew() {
+    if (offerTemplates.length >= 10) return toast.error("Você já atingiu o limite de 10 modelos.");
+    const name = offerTemplateName.trim() || `Modelo ${offerTemplates.length + 1}`;
+    const preset: OfferTemplatePreset = { id: crypto.randomUUID(), name, content: offerTemplate };
+    const next = [...offerTemplates, preset];
+    setOfferTemplates(next);
+    setActiveOfferTemplateId(preset.id);
+    setOfferTemplateName(preset.name);
+    window.localStorage.setItem("promozap.offerTemplates.v2", JSON.stringify(next));
+    window.localStorage.setItem("promozap.offerTemplates.active.v2", preset.id);
+    window.localStorage.setItem("promozap.offerTemplate.v1", preset.content);
+    setTemplateSavedAt(new Date().toISOString());
+    toast.success(`Novo modelo “${name}” criado.`);
+  }
+
+  function selectOfferTemplate(id: string) {
+    const preset = offerTemplates.find((item) => item.id === id);
+    if (!preset) return;
+    setActiveOfferTemplateId(preset.id);
+    setOfferTemplateName(preset.name);
+    setOfferTemplate(preset.content);
+    window.localStorage.setItem("promozap.offerTemplates.active.v2", preset.id);
+    window.localStorage.setItem("promozap.offerTemplate.v1", preset.content);
+  }
+
+  function deleteOfferTemplate() {
+    if (offerTemplates.length <= 1) return toast.error("Mantenha pelo menos um modelo salvo.");
+    const next = offerTemplates.filter((item) => item.id !== activeOfferTemplateId);
+    const fallback = next[0];
+    setOfferTemplates(next);
+    setActiveOfferTemplateId(fallback.id);
+    setOfferTemplateName(fallback.name);
+    setOfferTemplate(fallback.content);
+    window.localStorage.setItem("promozap.offerTemplates.v2", JSON.stringify(next));
+    window.localStorage.setItem("promozap.offerTemplates.active.v2", fallback.id);
+    window.localStorage.setItem("promozap.offerTemplate.v1", fallback.content);
+    toast.success("Modelo excluído.");
+  }
+
+  function updateCarouselEnabled(enabled: boolean) {
+    setCarouselEnabled(enabled);
+    window.localStorage.setItem("promozap.carousel.enabled.v1", String(enabled));
+  }
+
+  function updateCarouselButtonLabel(label: string) {
+    const normalized = label.trim().slice(0, 25) || "VER OFERTA";
+    setCarouselButtonLabel(normalized);
+    window.localStorage.setItem("promozap.carousel.buttonLabel.v1", normalized);
   }
 
   async function scanMonitoredDeals() {
@@ -1475,10 +1561,21 @@ export default function Dashboard() {
         if (prepared.store === "mercadolivre" && !isMercadoLivreShortAffiliateUrl(prepared.item.url)) {
           throw new Error("A oferta foi encontrada, mas o Mercado Livre não devolveu um link curto meli.la. Nada foi enviado.");
         }
+        const reviewCards = carouselEnabled ? (prepared.item.reviews || []).flatMap((review) => {
+          const firstMedia = review.media?.[0]
+            || (review.videos?.[0] ? { type: "video" as const, url: review.videos[0] } : null)
+            || (review.images?.[0] ? { type: "image" as const, url: review.images[0] } : null);
+          if (!firstMedia) return [];
+          return [{
+            text: review.text || "Avaliação publicada com mídia.",
+            imageUrl: firstMedia.type === "image" ? firstMedia.url : undefined,
+            videoUrl: firstMedia.type === "video" ? firstMedia.url : undefined,
+          }];
+        }).slice(0, 4) : [];
         const sendResponse = await fetch("/api/offers/send", {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Promozap-Admin-Token": whatsapp.instanceToken.trim() },
-          body: JSON.stringify({ destinationJid: affiliateHubDestination, text: prepared.message, imageUrl: prepared.item.imageUrl, includeImage: Boolean(prepared.item.imageUrl), productId: prepared.item.itemId || prepared.item.id }),
+          body: JSON.stringify({ destinationJid: affiliateHubDestination, text: prepared.message, imageUrl: prepared.item.imageUrl, includeImage: Boolean(prepared.item.imageUrl), reviewCards, carouselEnabled, carouselButtonLabel: carouselButtonLabel.trim() || "VER OFERTA", productUrl: prepared.item.url, productId: prepared.item.itemId || prepared.item.id }),
         });
         const sendResult = await sendResponse.json() as { error?: string };
         if (!sendResponse.ok) throw new Error(sendResult.error || "A UAZAPI recusou o envio automático.");
@@ -1540,7 +1637,7 @@ export default function Dashboard() {
     if (!whatsapp.instanceToken.trim()) return toast.error("Informe o token da UAZAPI em Credenciais.");
     setOfferSending(true);
     try {
-      const reviewCards = (selectedCatalogItem.reviews || []).flatMap((review) => {
+      const reviewCards = carouselEnabled ? (selectedCatalogItem.reviews || []).flatMap((review) => {
         const firstMedia = review.media?.[0]
           || (review.videos?.[0] ? { type: "video" as const, url: review.videos[0] } : null)
           || (review.images?.[0] ? { type: "image" as const, url: review.images[0] } : null);
@@ -1550,11 +1647,11 @@ export default function Dashboard() {
           imageUrl: firstMedia.type === "image" ? firstMedia.url : undefined,
           videoUrl: firstMedia.type === "video" ? firstMedia.url : undefined,
         }];
-      }).slice(0, 4);
+      }).slice(0, 4) : [];
       const response = await fetch("/api/offers/send", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Promozap-Admin-Token": whatsapp.instanceToken.trim() },
-        body: JSON.stringify({ destinationJid: offerDestination, text: offerMessage, imageUrl: selectedCatalogItem.imageUrl, includeImage: offerIncludeImage, reviewCards, productUrl: selectedCatalogItem.url, productId: selectedCatalogItem.itemId || selectedCatalogItem.id }),
+        body: JSON.stringify({ destinationJid: offerDestination, text: offerMessage, imageUrl: selectedCatalogItem.imageUrl, includeImage: offerIncludeImage, reviewCards, carouselEnabled, carouselButtonLabel: carouselButtonLabel.trim() || "VER OFERTA", productUrl: selectedCatalogItem.url, productId: selectedCatalogItem.itemId || selectedCatalogItem.id }),
       });
       const result = await response.json() as { error?: string; destination?: string };
       if (!response.ok) throw new Error(result.error || "Não foi possível enviar a oferta.");
@@ -1635,7 +1732,7 @@ export default function Dashboard() {
     void scanAffiliateHub(true);
     const timer = window.setInterval(() => void scanAffiliateHub(true), Math.max(1, Number(affiliateHubInterval) || 5) * 60_000);
     return () => window.clearInterval(timer);
-  }, [affiliateHubAutoSend, affiliateHubInterval, affiliateHubDestination, localCollectorUrl, localCollectorToken, whatsapp.instanceToken]);
+  }, [affiliateHubAutoSend, affiliateHubInterval, affiliateHubDestination, localCollectorUrl, localCollectorToken, whatsapp.instanceToken, carouselEnabled, carouselButtonLabel]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1953,7 +2050,7 @@ export default function Dashboard() {
                         {!destinationGroups.length ? <div className="rounded-xl border border-dashed border-[#34483c] p-6 text-center"><UsersRound className="mx-auto mb-2 size-8 text-[#63746a]" /><p className="text-sm font-bold">Nenhum destino configurado</p><button type="button" onClick={() => setActiveTab("groups")} className="mt-2 text-xs font-bold text-[#58e683] underline">Configurar grupos</button></div> : null}
                       </div>
                       <Button onClick={() => void sendPromotionToGroups()} disabled={promotionSending || !promotionGroups.length || !promotionMessage.trim() || !isMercadoLivreShortAffiliateUrl(promotionItem.url)} className="h-12 w-full rounded-xl bg-[#30dd6b] font-black text-[#04140a] hover:bg-[#55ec82]">{promotionSending ? <LoaderCircle className="animate-spin" /> : <Send />} {promotionSending ? "Enviando..." : `Enviar para ${promotionGroups.length || 0} grupo${promotionGroups.length === 1 ? "" : "s"}`}</Button>
-                      <p className="rounded-xl border border-[#31543b] bg-[#0b1710] p-3 text-center text-xs leading-5 text-[#9eeab3]">Carrossel: o primeiro card leva a foto oficial, o template e a URL escrita no corpo da mensagem; ele também inclui o botão “VER OFERTA”, porque o WhatsApp não transforma links do corpo de cartões interativos em hyperlinks. Os próximos usam a primeira foto ou vídeo de até 4 avaliações diferentes, cada um com o texto da própria avaliação.</p>
+                      <p className="rounded-xl border border-[#31543b] bg-[#0b1710] p-3 text-center text-xs leading-5 text-[#9eeab3]">{carouselEnabled ? `Carrossel ativado: foto oficial e mensagem no primeiro cartão, seguidas por até quatro avaliações com mídia. Todos os cartões levam o botão “${carouselButtonLabel || "VER OFERTA"}” para o mesmo link.` : "Carrossel desativado: a oferta será enviada como mensagem normal, somente com a foto oficial, o texto e o link no corpo."}</p>
                       <p className="text-center text-xs leading-5 text-[#829389]">O envio só é liberado depois que o Mercado Livre confirma o seu link curto meli.la.</p>
                     </CardContent>
                   </Card>
@@ -2235,7 +2332,19 @@ export default function Dashboard() {
 
             <TabsContent value="templates" id="layout-das-mensagens">
               <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
-                <Card className="border-[#dce4e9] bg-white text-[#243447] shadow-[0_10px_35px_rgba(31,54,76,.08)]"><CardHeader><CardTitle className="flex items-center gap-2 text-xl"><LayoutTemplate className="size-5 text-[#087bd3]" /> Editor do layout</CardTitle><CardDescription>Esse modelo é aplicado ao preparar qualquer produto no catálogo ou no radar.</CardDescription></CardHeader><CardContent className="space-y-4"><Textarea value={offerTemplate} onChange={(event) => setOfferTemplate(event.target.value)} rows={16} className="min-h-[390px] border-[#d8e0e6] bg-[#fbfcfd] font-mono text-sm leading-6 text-[#263746]" /><div className="flex flex-col gap-2 sm:flex-row"><Button onClick={saveOfferTemplate} className="bg-[#087bd3] font-extrabold text-white hover:bg-[#076bb7]"><Check /> Salvar modelo</Button><Button variant="outline" onClick={() => setOfferTemplate(defaultOfferTemplate)} className="border-[#cfd8df] bg-white text-[#263746]"><RefreshCw /> Restaurar padrão</Button></div>{templateSavedAt && <p className="text-xs text-[#6e7e8b]">Salvo em {new Date(templateSavedAt).toLocaleString("pt-BR")}.</p>}</CardContent></Card>
+                <Card className="border-[#dce4e9] bg-white text-[#243447] shadow-[0_10px_35px_rgba(31,54,76,.08)]">
+                  <CardHeader><CardTitle className="flex items-center gap-2 text-xl"><LayoutTemplate className="size-5 text-[#087bd3]" /> Biblioteca de layouts</CardTitle><CardDescription>Salve até 10 modelos e troque o formato da mensagem com um clique.</CardDescription></CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                      <label className="space-y-2 text-sm font-bold">Modelo ativo<NativeSelect value={activeOfferTemplateId} onChange={(event) => selectOfferTemplate(event.target.value)} className="border-[#d8e0e6] bg-white text-[#253545]">{offerTemplates.map((preset) => <NativeSelectOption key={preset.id} value={preset.id}>{preset.name}</NativeSelectOption>)}</NativeSelect></label>
+                      <label className="space-y-2 text-sm font-bold">Nome do modelo<Input value={offerTemplateName} onChange={(event) => setOfferTemplateName(event.target.value.slice(0, 40))} maxLength={40} placeholder="Ex.: Oferta com cupom" className="h-11 border-[#d8e0e6] bg-white text-[#253545]" /></label>
+                    </div>
+                    <div className="flex items-center justify-between rounded-xl border border-[#dce4e9] bg-[#f6f9fb] px-3 py-2 text-sm"><span><strong>{offerTemplates.length}</strong> de 10 modelos salvos</span><span className="text-xs text-[#6e7e8b]">O selecionado será usado nas próximas ofertas</span></div>
+                    <Textarea value={offerTemplate} onChange={(event) => setOfferTemplate(event.target.value)} rows={16} className="min-h-[390px] border-[#d8e0e6] bg-[#fbfcfd] font-mono text-sm leading-6 text-[#263746]" />
+                    <div className="flex flex-wrap gap-2"><Button onClick={saveOfferTemplate} className="bg-[#087bd3] font-extrabold text-white hover:bg-[#076bb7]"><Check /> Salvar alterações</Button><Button variant="outline" onClick={saveOfferTemplateAsNew} disabled={offerTemplates.length >= 10} className="border-[#9bc8e7] bg-[#eef8ff] text-[#086fac]"><Plus /> Salvar como novo</Button><Button variant="outline" onClick={deleteOfferTemplate} disabled={offerTemplates.length <= 1} className="border-[#efcaca] bg-white text-[#a83c3c]"><X /> Excluir</Button><Button variant="outline" onClick={() => setOfferTemplate(defaultOfferTemplate)} className="border-[#cfd8df] bg-white text-[#263746]"><RefreshCw /> Restaurar texto padrão</Button></div>
+                    {templateSavedAt && <p className="text-xs text-[#6e7e8b]">Salvo em {new Date(templateSavedAt).toLocaleString("pt-BR")}.</p>}
+                  </CardContent>
+                </Card>
                 <div className="space-y-5"><Card className="border-[#dce4e9] bg-white text-[#243447] shadow-none"><CardHeader><CardTitle className="text-base">Variáveis disponíveis</CardTitle><CardDescription>Clique em uma variável para copiá-la.</CardDescription></CardHeader><CardContent className="space-y-2">{offerTemplateVariables.map(([variable, description]) => <button key={variable} type="button" onClick={() => { void navigator.clipboard.writeText(variable); toast.success(`${variable} copiada.`); }} className="w-full rounded-xl border border-[#e0e6eb] bg-[#f8fafb] p-3 text-left hover:border-[#8fc5ea] hover:bg-[#f1f8fd]"><code className="text-xs font-black text-[#0874c9]">{variable}</code><p className="mt-1 text-xs leading-5 text-[#6d7c89]">{description}</p></button>)}</CardContent></Card><Card className="border-[#dce4e9] bg-[#f4f9fd] text-[#243447] shadow-none"><CardHeader><CardTitle className="text-base">Como os campos opcionais funcionam</CardTitle></CardHeader><CardContent className="text-sm leading-6 text-[#5e6f7d]">Prefira as variáveis que começam com <code>linha_</code>. Quando não houver preço anterior, cupom, desconto ou frete, a linha inteira some sem deixar espaço vazio.</CardContent></Card></div>
               </div>
             </TabsContent>
@@ -2290,8 +2399,16 @@ export default function Dashboard() {
                 </Card>
 
                 <Card className="border-[#27322b] bg-[#0b100d] shadow-none">
-                  <CardHeader><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><CardTitle className="flex items-center gap-2 text-lg"><MessageCircleMore className="size-5 text-[#62ef8b]" /> Botão de compra</CardTitle><CardDescription>Frases opcionais escolhidas aleatoriamente nos envios compatíveis.</CardDescription></div><label className="flex items-center gap-2 text-sm"><Switch checked={buttonSettings.enabled} onCheckedChange={(enabled) => setButtonSettings((current) => ({ ...current, enabled }))} /> {buttonSettings.enabled ? "Ativado" : "Desativado"}</label></div></CardHeader>
-                  <CardContent className="space-y-4"><div className="flex flex-wrap gap-2">{buttonSettings.labels.map((label, index) => <div key={`${label}-${index}`} className="flex items-center gap-2 rounded-full border border-[#35513e] bg-[#102018] py-1.5 pl-3 pr-1.5 text-sm font-semibold"><span>{label}</span><button type="button" onClick={() => setButtonSettings((current) => ({ ...current, labels: current.labels.filter((_, itemIndex) => itemIndex !== index) }))} className="grid size-6 place-items-center rounded-full hover:bg-[#2b3b30]"><X className="size-3.5" /></button></div>)}</div><div className="flex flex-col gap-2 sm:flex-row"><Input value={buttonDraft} onChange={(event) => setButtonDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addButtonLabel(); } }} maxLength={25} placeholder="Ex.: GARANTIR DESCONTO" className="h-11 border-[#34423a] bg-[#080c09]" /><Button onClick={addButtonLabel} variant="outline" className="border-[#2e7041] bg-[#112a19] text-[#8ef1aa]"><Plus /> Adicionar</Button><Button onClick={() => void saveButtonSettings()} disabled={buttonSettingsSaving} className="bg-[#24c75a] font-bold text-[#04140a]">{buttonSettingsSaving ? <LoaderCircle className="animate-spin" /> : <BadgeCheck />} Salvar</Button></div></CardContent>
+                  <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><MessageCircleMore className="size-5 text-[#62ef8b]" /> Carrossel e botão de compra</CardTitle><CardDescription>Escolha entre o envio simples ou o carrossel com avaliações. No carrossel, todos os cartões usam o mesmo link.</CardDescription></CardHeader>
+                  <CardContent className="space-y-5">
+                    <div className="grid gap-4 rounded-xl border border-[#34423a] bg-[#080c09] p-4 md:grid-cols-[minmax(0,1fr)_280px] md:items-center">
+                      <label className="flex items-center justify-between gap-4"><span><span className="block text-sm font-bold">Enviar com carrossel</span><span className="mt-1 block text-xs leading-5 text-[#94a69b]">Desligado: envia somente foto oficial, texto e link normal. Ligado: acrescenta até quatro avaliações com mídia.</span></span><Switch checked={carouselEnabled} onCheckedChange={updateCarouselEnabled} /></label>
+                      <label className="space-y-2 text-sm font-bold">Texto do botão<NativeSelect value={carouselButtonLabel} onChange={(event) => updateCarouselButtonLabel(event.target.value)} disabled={!carouselEnabled} className="border-[#34423a] bg-[#080c09]">{Array.from(new Set(["VER OFERTA", ...buttonSettings.labels])).map((label) => <NativeSelectOption key={label} value={label}>{label}</NativeSelectOption>)}</NativeSelect></label>
+                    </div>
+                    <div><p className="mb-2 text-sm font-bold">Frases disponíveis para o botão</p><div className="flex flex-wrap gap-2">{buttonSettings.labels.map((label, index) => <div key={`${label}-${index}`} className="flex items-center gap-2 rounded-full border border-[#35513e] bg-[#102018] py-1.5 pl-3 pr-1.5 text-sm font-semibold"><span>{label}</span><button type="button" onClick={() => setButtonSettings((current) => ({ ...current, labels: current.labels.filter((_, itemIndex) => itemIndex !== index) }))} className="grid size-6 place-items-center rounded-full hover:bg-[#2b3b30]"><X className="size-3.5" /></button></div>)}</div></div>
+                    <div className="flex flex-col gap-2 sm:flex-row"><Input value={buttonDraft} onChange={(event) => setButtonDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addButtonLabel(); } }} maxLength={25} placeholder="Ex.: GARANTA AQUI" className="h-11 border-[#34423a] bg-[#080c09]" /><Button onClick={addButtonLabel} variant="outline" className="border-[#2e7041] bg-[#112a19] text-[#8ef1aa]"><Plus /> Adicionar</Button><Button onClick={() => void saveButtonSettings()} disabled={buttonSettingsSaving} className="bg-[#24c75a] font-bold text-[#04140a]">{buttonSettingsSaving ? <LoaderCircle className="animate-spin" /> : <BadgeCheck />} Salvar frases</Button></div>
+                    <p className="text-xs leading-5 text-[#94a69b]">A opção de carrossel e o texto selecionado são salvos automaticamente neste navegador. As frases cadastradas continuam salvas no painel.</p>
+                  </CardContent>
                 </Card>
               </div>
             </TabsContent>
