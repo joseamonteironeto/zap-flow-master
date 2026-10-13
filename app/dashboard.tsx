@@ -18,7 +18,6 @@ import {
   KeyRound,
   Link2,
   LoaderCircle,
-  Moon,
   MessageCircleMore,
   PackageSearch,
   LayoutTemplate,
@@ -33,7 +32,6 @@ import {
   Sparkles,
   Smartphone,
   ScrollText,
-  Sun,
   UsersRound,
   Webhook,
   X,
@@ -452,7 +450,6 @@ function PriceHistoryPanel({ item }: { item: CatalogItem }) {
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("groups");
-  const [theme, setTheme] = useState<"dark" | "light">("light");
   const [groups, setGroups] = useState<Group[]>([]);
   const [configs, setConfigs] = useState<Record<string, GroupConfig>>({});
   const [affiliate, setAffiliate] = useState<AffiliateSettings>(emptyAffiliate);
@@ -614,11 +611,6 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    const savedTheme = window.localStorage.getItem("promozap.theme");
-    if (savedTheme === "light" || savedTheme === "dark") setTheme(savedTheme);
-  }, []);
-
-  useEffect(() => {
     const savedUrl = window.localStorage.getItem("promozap.localCollectorUrl");
     const savedToken = window.localStorage.getItem("promozap.localCollectorToken");
     const savedTemplate = window.localStorage.getItem("promozap.offerTemplate.v1");
@@ -638,10 +630,6 @@ export default function Dashboard() {
   useEffect(() => {
     window.localStorage.setItem("promozap.affiliateHub.settings.v1", JSON.stringify({ interval: affiliateHubInterval, destination: affiliateHubDestination }));
   }, [affiliateHubInterval, affiliateHubDestination]);
-
-  useEffect(() => {
-    window.localStorage.setItem("promozap.theme", theme);
-  }, [theme]);
 
   useEffect(() => {
     if (!whatsappLoaded) return;
@@ -1725,7 +1713,7 @@ export default function Dashboard() {
   }[activeTab] || ["Painel Promozap", "Operação de grupos de ofertas."];
 
   return (
-    <main className={`promozap-${theme} min-h-screen bg-background text-foreground`}>
+    <main className="promozap-light min-h-screen bg-background text-foreground">
       <Toaster position="top-center" richColors />
       <div className="min-h-screen lg:grid lg:grid-cols-[260px_minmax(0,1fr)]">
         <aside className="hidden border-r border-[#243029] bg-[#070a08] lg:block">
@@ -1767,7 +1755,6 @@ export default function Dashboard() {
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <Button variant="outline" size="icon" className="border-[#2a3730] bg-[#0d1310] text-[#94a69b] hover:bg-[#172019]" aria-label="Notificações"><Bell className="size-4" /></Button>
-              <Button onClick={() => setTheme((value) => value === "dark" ? "light" : "dark")} variant="outline" size="icon" className="border-[#2a3730] bg-[#0d1310] text-[#94a69b] hover:bg-[#172019]" aria-label={theme === "dark" ? "Ativar modo claro" : "Ativar modo escuro"}>{theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}</Button>
               <button onClick={() => setActiveTab("credentials")} className={`flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold ${whatsappConnected ? "border-[#2f7042] bg-[#102218] text-[#72f295]" : "border-[#3b443e] bg-[#111512] text-[#a7afa9]"}`}><span className={`size-2 rounded-full ${whatsappConnected ? "bg-[#31d365]" : "bg-[#778078]"}`} />{whatsappConnected ? "Conectado" : "Configurar"}</button>
             </div>
           </header>
@@ -1916,7 +1903,7 @@ export default function Dashboard() {
                 </Card>
 
                 {promotionItem ? <Dialog open={promotionModalOpen} onOpenChange={setPromotionModalOpen}>
-                  <DialogContent className="max-h-[94vh] overflow-y-auto border-[#26372d] bg-[#07100a] text-white sm:max-w-[min(1500px,96vw)]">
+                  <DialogContent className="promozap-light promotion-builder max-h-[94vh] overflow-y-auto border-[#d7e1da] bg-white text-[#17221b] sm:max-w-[min(1500px,96vw)]">
                     <DialogHeader><DialogTitle className="pr-8 text-xl">Preparar oferta</DialogTitle><DialogDescription>Revise os dados, a mensagem e os grupos antes de enviar. Use o X para fechar esta janela.</DialogDescription></DialogHeader>
                     <div className="grid gap-5 2xl:grid-cols-[minmax(300px,.85fr)_minmax(360px,1fr)_minmax(300px,.8fr)]">
                   <Card className="h-fit border-[#26372d] bg-[#09100c] shadow-none">
@@ -1966,7 +1953,7 @@ export default function Dashboard() {
                         {!destinationGroups.length ? <div className="rounded-xl border border-dashed border-[#34483c] p-6 text-center"><UsersRound className="mx-auto mb-2 size-8 text-[#63746a]" /><p className="text-sm font-bold">Nenhum destino configurado</p><button type="button" onClick={() => setActiveTab("groups")} className="mt-2 text-xs font-bold text-[#58e683] underline">Configurar grupos</button></div> : null}
                       </div>
                       <Button onClick={() => void sendPromotionToGroups()} disabled={promotionSending || !promotionGroups.length || !promotionMessage.trim() || !isMercadoLivreShortAffiliateUrl(promotionItem.url)} className="h-12 w-full rounded-xl bg-[#30dd6b] font-black text-[#04140a] hover:bg-[#55ec82]">{promotionSending ? <LoaderCircle className="animate-spin" /> : <Send />} {promotionSending ? "Enviando..." : `Enviar para ${promotionGroups.length || 0} grupo${promotionGroups.length === 1 ? "" : "s"}`}</Button>
-                      <p className="rounded-xl border border-[#31543b] bg-[#0b1710] p-3 text-center text-xs leading-5 text-[#9eeab3]">Carrossel: o primeiro card leva a foto oficial, o template e a URL escrita no texto normal; os próximos usam a primeira foto ou vídeo de até 4 avaliações diferentes, cada um com o texto da própria avaliação. Sem botão e sem footer.</p>
+                      <p className="rounded-xl border border-[#31543b] bg-[#0b1710] p-3 text-center text-xs leading-5 text-[#9eeab3]">Carrossel: o primeiro card leva a foto oficial, o template e a URL escrita no corpo da mensagem; ele também inclui o botão “VER OFERTA”, porque o WhatsApp não transforma links do corpo de cartões interativos em hyperlinks. Os próximos usam a primeira foto ou vídeo de até 4 avaliações diferentes, cada um com o texto da própria avaliação.</p>
                       <p className="text-center text-xs leading-5 text-[#829389]">O envio só é liberado depois que o Mercado Livre confirma o seu link curto meli.la.</p>
                     </CardContent>
                   </Card>
