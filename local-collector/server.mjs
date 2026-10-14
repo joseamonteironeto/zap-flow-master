@@ -939,7 +939,9 @@ async function scanDeals(options = {}) {
   const sourceUrl = source ? smartphoneSources[source] : options.url;
   const startUrl = source
     ? (source === "offers" ? normalizeDealsUrl(sourceUrl) : normalizeMarketplaceUrl(sourceUrl))
-    : (mode === "marketplace" ? marketplaceSearchUrl(query, rawCategory) : normalizeDealsUrl(options.url));
+    : (mode === "marketplace"
+      ? (String(options.url || "").trim() ? normalizeMarketplaceUrl(options.url) : marketplaceSearchUrl(query, rawCategory))
+      : normalizeDealsUrl(options.url));
   const limit = Math.max(1, Math.min(500, Number(options.limit) || 20));
   const scanLimit = Math.max(limit, Math.min(10000, Number(options.scanLimit) || limit));
   const monitorAll = Boolean(options.monitorAll) && mode === "offers";
