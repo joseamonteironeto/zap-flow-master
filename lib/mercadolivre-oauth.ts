@@ -1,8 +1,32 @@
+import { env } from "cloudflare:workers";
 import { deleteIntegrationSecret, readIntegrationSecret, saveIntegrationSecret } from "@/lib/integration-secret";
 
 const TOKEN_ENDPOINT = "https://api.mercadolibre.com/oauth/token";
 const EXPIRY_MARGIN_MS = 2 * 60 * 1000;
 let refreshInFlight: Promise<string | null> | null = null;
+
+function runtimeCredentials() {
+  const runtime = env as unknown as {
+    MERCADOLIVRE_CLIENT_ID?: string;
+    MERCADOLIVRE_CLIENT_SECRET?: string;
+  };
+  return {
+    clientId: runtime.MERCADOLIVRE_CLIENT_ID?.trim() || null,
+    clientSecret: runtime.MERCADOLIVRE_CLIENT_SECRET?.trim() || null,
+  };
+}
+
+async function applicationCredentials() {
+  const runtime = runtimeCredentials();
+  const [storedClientId, storedClientSecret] = await Promise.all([
+    runtime.clientId ? Promise.resolve(null) : readIntegrationSecret("mercadolivre_client_id"),
+    runtime.clientSecret ? Promise.resolve(null) : readIntegrationSecret("mercadolivre_client_secret"),
+  ]);
+  return {
+    clientId: runtime.clientId || storedClientId,
+    clientSecret: runtime.clientSecret || storedClientSecret,
+  };
+}
 
 type TokenPayload = {
   access_token?: string;
@@ -20,9 +44,8 @@ export function mercadoLivreRedirectUri(origin: string) {
 }
 
 export async function mercadoLivreOAuthStatus() {
-  const [clientId, clientSecret, accessToken, refreshToken, expiresAt, userId, scope] = await Promise.all([
-    readIntegrationSecret("mercadolivre_client_id"),
-    readIntegrationSecret("mercadolivre_client_secret"),
+  const [{ clientId, clientSecret }, accessToken, refreshToken, expiresAt, userId, scope] = await Promise.all([
+    applicationCredentials(),
     readIntegrationSecret("mercadolivre_access_token"),
     readIntegrationSecret("mercadolivre_refresh_token"),
     readIntegrationSecret("mercadolivre_token_expires_at"),
@@ -77,21 +100,17 @@ async function requestToken(params: Record<string, string>) {
 }
 
 export async function exchangeMercadoLivreCode(code: string, redirectUri: string) {
-  const [clientId, clientSecret] = await Promise.all([
-    readIntegrationSecret("mercadolivre_client_id"),
-    readIntegrationSecret("mercadolivre_client_secret"),
-  ]);
+  const { clientId, clientSecret } = await applicationCredentials();
   if (!clientId || !clientSecret) throw new Error("Salve o Client ID e o Client Secret antes de conectar.");
   return requestToken({ grant_type: "authorization_code", client_id: clientId, client_secret: clientSecret, code, redirect_uri: redirectUri });
 }
 
 export async function getMercadoLivreAccessToken() {
-  const [accessToken, refreshToken, expiresAt, clientId, clientSecret] = await Promise.all([
+  const [accessToken, refreshToken, expiresAt, { clientId, clientSecret }] = await Promise.all([
     readIntegrationSecret("mercadolivre_access_token"),
     readIntegrationSecret("mercadolivre_refresh_token"),
     readIntegrationSecret("mercadolivre_token_expires_at"),
-    readIntegrationSecret("mercadolivre_client_id"),
-    readIntegrationSecret("mercadolivre_client_secret"),
+    applicationCredentials(),
   ]);
   const validUntil = expiresAt ? Date.parse(expiresAt) : 0;
   if (accessToken && (!validUntil || validUntil > Date.now() + EXPIRY_MARGIN_MS)) return accessToken;
@@ -102,10 +121,9 @@ export async function getMercadoLivreAccessToken() {
 export async function refreshMercadoLivreAccessToken() {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
-    const [refreshToken, clientId, clientSecret] = await Promise.all([
+    const [refreshToken, { clientId, clientSecret }] = await Promise.all([
       readIntegrationSecret("mercadolivre_refresh_token"),
-      readIntegrationSecret("mercadolivre_client_id"),
-      readIntegrationSecret("mercadolivre_client_secret"),
+      applicationCredentials(),
     ]);
     if (!refreshToken || !clientId || !clientSecret) return null;
     try {

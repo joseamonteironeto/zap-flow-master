@@ -283,6 +283,15 @@ type CatalogSearchResponse = {
   warning?: string | null;
 };
 
+type MercadoLivreApiLookup = {
+  ok: boolean;
+  checkedAt: string;
+  connection: { connected: boolean; expiresAt?: string | null; userId?: string | null; scope?: string | null };
+  endpoints: Array<{ key: string; label: string; available: boolean }>;
+  product: CatalogItem;
+  notes: string[];
+};
+
 type LocalCollectorProduct = {
   ok?: boolean;
   needsUserAction?: boolean;
@@ -621,6 +630,10 @@ export default function Dashboard() {
   const [mercadoLivreClientSecret, setMercadoLivreClientSecret] = useState("");
   const [mercadoLivreConnecting, setMercadoLivreConnecting] = useState(false);
   const [catalogCredentialsSaving, setCatalogCredentialsSaving] = useState(false);
+  const [mlApiProductInput, setMlApiProductInput] = useState("");
+  const [mlApiProductLoading, setMlApiProductLoading] = useState(false);
+  const [mlApiProductError, setMlApiProductError] = useState("");
+  const [mlApiProductResult, setMlApiProductResult] = useState<MercadoLivreApiLookup | null>(null);
 
   async function loadData() {
     setLoading(true);
@@ -1052,6 +1065,28 @@ export default function Dashboard() {
       setCatalogError(caught instanceof Error ? caught.message : "Não foi possível consultar os produtos.");
     } finally {
       setCatalogSearching(false);
+    }
+  }
+
+  async function lookupMercadoLivreApiProduct() {
+    if (!mlApiProductInput.trim()) return toast.error("Informe um ID MLB ou cole o link do produto.");
+    if (!whatsapp.instanceToken.trim()) return toast.error("Informe o token da UAZAPI em Credenciais para autorizar a consulta.");
+    setMlApiProductLoading(true);
+    setMlApiProductError("");
+    setMlApiProductResult(null);
+    try {
+      const response = await fetch(`/api/catalog/mercadolivre-product?id=${encodeURIComponent(mlApiProductInput.trim())}`, {
+        headers: { "X-Promozap-Admin-Token": whatsapp.instanceToken.trim() },
+        cache: "no-store",
+      });
+      const result = await response.json() as MercadoLivreApiLookup & { error?: string };
+      if (!response.ok || !result.product) throw new Error(result.error || "A API não retornou o produto.");
+      setMlApiProductResult(result);
+      toast.success("Produto consultado na API oficial do Mercado Livre.");
+    } catch (caught) {
+      setMlApiProductError(caught instanceof Error ? caught.message : "Não foi possível consultar o produto.");
+    } finally {
+      setMlApiProductLoading(false);
     }
   }
 
@@ -1932,7 +1967,7 @@ export default function Dashboard() {
   }, [activeTab]);
 
   useEffect(() => {
-    if (activeTab === "discovery" || activeTab === "monitoring") {
+    if (activeTab === "discovery" || activeTab === "monitoring" || activeTab === "ml-api") {
       void loadCatalogCredentialStatus();
       if (!mercadoLivreCategories.length) void loadMercadoLivreCategories();
     }
@@ -1973,11 +2008,11 @@ export default function Dashboard() {
     }
     const oauth = params.get("ml_oauth");
     if (!oauth) return;
-    setActiveTab("discovery");
+    setActiveTab("ml-api");
     if (oauth === "success") toast.success("Mercado Livre conectado. A renovação do token será automática.");
     else toast.error(params.get("ml_message") || "Não foi possível conectar o Mercado Livre.");
     void loadCatalogCredentialStatus();
-    window.history.replaceState({}, "", `${window.location.pathname}#consultar-produtos`);
+    window.history.replaceState({}, "", `${window.location.pathname}#consulta-api-ml`);
   }, []);
 
   async function testWhatsappConnection() {
@@ -2030,6 +2065,7 @@ export default function Dashboard() {
     products: ["Histórico", "Acompanhe os produtos identificados, convertidos e enviados."],
     catalog: ["Dados dos produtos", "Veja tudo o que foi extraído das ofertas enviadas do Mercado Livre."],
     discovery: ["Consultar produtos", "Pesquise recomendações, preços e filtros nos catálogos oficiais."],
+    "ml-api": ["Consulta API Mercado Livre", "Consulte um anúncio pelo ID e inspecione todos os campos autorizados pela API oficial."],
     monitoring: ["Radar de ofertas", "Monitore novas ofertas do dia e destaque quedas de preço relevantes."],
     templates: ["Layout das mensagens", "Monte o texto das ofertas com variáveis preenchidas automaticamente."],
     credentials: ["Credenciais", "Centralize as integrações da UAZAPI, afiliados, APIs e coletor local."],
@@ -2054,6 +2090,7 @@ export default function Dashboard() {
                 ["products", "Histórico", PackageSearch],
                 ["catalog", "Dados dos produtos", Database],
                 ["discovery", "Consultar produtos", Search],
+                ["ml-api", "Consulta API ML", Database],
                 ["monitoring", "Radar de ofertas", Radar],
                 ["templates", "Layout das mensagens", LayoutTemplate],
                 ["logs", "Logs", ScrollText],
@@ -2111,6 +2148,7 @@ export default function Dashboard() {
               <TabsTrigger value="products" className="h-10 min-w-28 rounded-lg px-4">Histórico</TabsTrigger>
               <TabsTrigger value="catalog" className="h-10 min-w-40 rounded-lg px-4">Dados dos produtos</TabsTrigger>
               <TabsTrigger value="discovery" className="h-10 min-w-40 rounded-lg px-4">Consultar produtos</TabsTrigger>
+              <TabsTrigger value="ml-api" className="h-10 min-w-40 rounded-lg px-4">Consulta API ML</TabsTrigger>
               <TabsTrigger value="monitoring" className="h-10 min-w-36 rounded-lg px-4">Radar ao vivo</TabsTrigger>
               <TabsTrigger value="templates" className="h-10 min-w-40 rounded-lg px-4">Layout das mensagens</TabsTrigger>
               <TabsTrigger value="logs" className="h-10 min-w-28 rounded-lg px-4">Logs</TabsTrigger>
@@ -2463,6 +2501,55 @@ export default function Dashboard() {
                     })}
                   </div>
                 )}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="ml-api" id="consulta-api-ml">
+              <div className="space-y-5 rounded-3xl bg-[#f4f6f8] p-4 text-[#243447] sm:p-6">
+                <section className="overflow-hidden rounded-2xl border border-[#dfe5eb] bg-white shadow-[0_8px_30px_rgba(31,54,76,.08)]">
+                  <div className="border-b border-[#e8edf1] bg-[linear-gradient(110deg,#fff9cf,#fff_62%)] p-5 sm:p-6">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div><div className="mb-2 flex items-center gap-2 text-sm font-extrabold text-[#8b7600]"><Database className="size-5" /> API OFICIAL DO MERCADO LIVRE</div><h2 className="text-2xl font-black text-[#1b2b3a]">Consultar todos os dados disponíveis</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-[#667788]">Informe o ID do anúncio, ID de catálogo ou a URL. A consulta combina anúncio, preço vigente, tabela de preços, promoções, vendedor e categoria.</p></div>
+                      <div className={`w-fit rounded-full px-4 py-2 text-sm font-bold ${catalogCredentials.mercadoLivreConfigured ? "bg-[#e8f8ef] text-[#138244]" : "bg-[#fff3cd] text-[#856404]"}`}>{catalogCredentials.mercadoLivreConfigured ? "● OAuth conectado" : catalogCredentials.mercadoLivreAppConfigured ? "○ Aplicativo configurado" : "○ Configuração pendente"}</div>
+                    </div>
+                  </div>
+                  <div className="space-y-4 p-5 sm:p-6">
+                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+                      <Input value={mlApiProductInput} onChange={(event) => setMlApiProductInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void lookupMercadoLivreApiProduct(); }} placeholder="Ex.: MLB7608133762 ou cole a URL completa" className="h-12 border-[#d8e0e6] bg-white text-[#253545]" />
+                      <Button onClick={() => void lookupMercadoLivreApiProduct()} disabled={mlApiProductLoading} className="h-12 bg-[#087bd3] px-6 font-extrabold text-white hover:bg-[#076bb7]">{mlApiProductLoading ? <LoaderCircle className="animate-spin" /> : <Search />} Consultar pela API</Button>
+                    </div>
+                    <div className="flex flex-col gap-3 rounded-xl border border-[#dce4e9] bg-[#f7f9fb] p-4 text-xs leading-5 text-[#607180] sm:flex-row sm:items-center sm:justify-between"><div><strong className="text-[#263746]">Redirect URI do aplicativo</strong><p className="mt-1 break-all font-mono">https://promozap-operacao-grupos.joseattax.chatgpt.site/api/oauth/mercadolivre/callback</p></div>{!catalogCredentials.mercadoLivreConfigured && <Button onClick={() => void connectMercadoLivre()} disabled={mercadoLivreConnecting} className="shrink-0 bg-[#ffe600] font-extrabold text-[#231f00] hover:bg-[#fff05a]">{mercadoLivreConnecting ? <LoaderCircle className="animate-spin" /> : <ExternalLink />} Conectar Mercado Livre</Button>}</div>
+                  </div>
+                </section>
+
+                {mlApiProductError && <div className="rounded-xl border border-[#f1c8c8] bg-[#fff2f2] p-4 text-sm text-[#a13b3b]"><div className="flex items-start gap-3"><CircleAlert className="mt-0.5 size-5 shrink-0" /><div><p className="font-bold">A consulta não foi concluída</p><p className="mt-1 leading-6">{mlApiProductError}</p></div></div></div>}
+
+                {mlApiProductResult && (() => {
+                  const item = mlApiProductResult.product;
+                  const detailRows: Array<[string, unknown]> = [
+                    ["ID do anúncio", item.itemId], ["ID de catálogo", item.catalogProductId], ["Condição", item.condition], ["Categoria", item.categoryName || item.categoryId],
+                    ["Vendedor", item.seller], ["ID do vendedor", item.sellerId], ["Reputação", item.sellerReputation], ["Loja oficial", item.officialStore],
+                    ["Estoque disponível", item.availableQuantity], ["Quantidade vendida", item.soldQuantity], ["Frete grátis", item.freeShipping ? "Sim" : "Não"], ["Envio Full", item.full ? "Sim" : "Não"],
+                    ["Tipo logístico", item.logisticType], ["Garantia", item.warranty], ["Parcelamento", item.installments], ["Origem do preço", item.priceSource],
+                    ["ID do preço", item.priceId], ["Atualização do preço", item.priceUpdatedAt], ["Tipo de promoção", item.promotionType], ["ID da promoção", item.promotionId],
+                    ["Cupom", item.coupon], ["Posição entre mais vendidos", item.bestSellerPosition], ["Tags", item.tags], ["Termos de venda", item.saleTerms],
+                  ].filter((row) => row[1] !== null && row[1] !== undefined && row[1] !== "");
+                  return <div className="space-y-5">
+                    <section className="grid gap-5 rounded-2xl border border-[#dfe5eb] bg-white p-5 shadow-[0_8px_30px_rgba(31,54,76,.07)] lg:grid-cols-[260px_minmax(0,1fr)]">
+                      <div className="aspect-square overflow-hidden rounded-2xl border border-[#e1e7ec] bg-white p-4">{item.imageUrl ? <img src={item.imageUrl} alt={item.title} className="h-full w-full object-contain" /> : <div className="grid h-full place-items-center"><ShoppingBag className="size-12 text-[#9ba8b3]" /></div>}</div>
+                      <div className="min-w-0"><div className="flex flex-wrap gap-2"><Badge className="bg-[#ffe600] text-[#231f00]">Mercado Livre</Badge><Badge className="bg-[#e8f8ef] text-[#138244]">Consulta {new Date(mlApiProductResult.checkedAt).toLocaleString("pt-BR")}</Badge></div><h3 className="mt-4 text-2xl font-black leading-tight text-[#1d2f3f]">{item.title}</h3><div className="mt-5 flex flex-wrap items-end gap-x-4 gap-y-2">{item.originalPrice && item.originalPrice > (item.price || 0) ? <span className="text-base text-[#8b98a3] line-through">{formatMoney(item.originalPrice, item.currency || "BRL")}</span> : null}<span className="text-4xl font-black text-[#087bd3]">{formatMoney(item.price, item.currency || "BRL")}</span>{item.discountPercentage ? <Badge className="bg-[#16a85b] text-white">-{item.discountPercentage}%</Badge> : null}</div><div className="mt-5 flex flex-wrap gap-2">{item.url && <Button asChild variant="outline" className="border-[#9bc8e7] bg-[#eef8ff] text-[#086fac]"><a href={item.url} target="_blank" rel="noreferrer"><ExternalLink /> Abrir produto</a></Button>}<Button onClick={() => { setPromotionInput(item.url || item.itemId || item.id); setActiveTab("generate"); toast.info("Produto enviado para Gerar promoção."); }} className="bg-[#24c75a] font-extrabold text-[#04140a] hover:bg-[#46df75]"><Sparkles /> Usar em Gerar promoção</Button></div></div>
+                    </section>
+
+                    <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+                      <Card className="border-[#dfe5eb] bg-white text-[#243447] shadow-none"><CardHeader><CardTitle>Dados estruturados</CardTitle><CardDescription>Somente campos efetivamente devolvidos ou derivados dos endpoints oficiais.</CardDescription></CardHeader><CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{detailRows.map(([label, value]) => <div key={label} className="rounded-xl border border-[#e1e7ec] bg-[#f8fafb] p-3"><p className="text-[11px] font-black uppercase tracking-[.08em] text-[#788794]">{label}</p><p className="mt-2 break-words text-sm font-semibold leading-5 text-[#263746]">{productDataValue(value)}</p></div>)}</CardContent></Card>
+                      <div className="space-y-4"><Card className="border-[#dfe5eb] bg-white text-[#243447] shadow-none"><CardHeader><CardTitle className="text-base">Fontes consultadas</CardTitle></CardHeader><CardContent className="space-y-2">{mlApiProductResult.endpoints.map((endpoint) => <div key={endpoint.key} className="flex items-center justify-between gap-3 rounded-lg border border-[#e1e7ec] px-3 py-2 text-sm"><span>{endpoint.label}</span><span className={`font-black ${endpoint.available ? "text-[#138244]" : "text-[#9a6a00]"}`}>{endpoint.available ? "Disponível" : "Não retornou"}</span></div>)}</CardContent></Card><Card className="border-[#dbe6ee] bg-[#eef7fd] text-[#243447] shadow-none"><CardContent className="space-y-2 p-4 text-xs leading-5 text-[#4f6575]">{mlApiProductResult.notes.map((note) => <p key={note}>• {note}</p>)}</CardContent></Card></div>
+                    </section>
+
+                    {item.attributes?.length ? <Card className="border-[#dfe5eb] bg-white text-[#243447] shadow-none"><CardHeader><CardTitle>Ficha técnica ({item.attributes.length})</CardTitle></CardHeader><CardContent className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">{item.attributes.map((attribute, index) => <div key={`${String(attribute.id || attribute.name)}-${index}`} className="rounded-xl border border-[#e1e7ec] bg-[#f8fafb] p-3"><p className="text-xs text-[#788794]">{String(attribute.name || attribute.id || "Atributo")}</p><p className="mt-1 text-sm font-semibold">{String(attribute.value_name || attribute.valueName || attribute.value_id || "—")}</p></div>)}</CardContent></Card> : null}
+
+                    <details className="rounded-2xl border border-[#dfe5eb] bg-white text-[#243447]"><summary className="cursor-pointer px-5 py-4 font-extrabold">Resposta completa da API (JSON)</summary><div className="border-t border-[#e1e7ec] p-4"><Button variant="outline" size="sm" onClick={() => { void navigator.clipboard.writeText(JSON.stringify(mlApiProductResult, null, 2)); toast.success("JSON copiado."); }} className="mb-3 border-[#9bc8e7] bg-[#eef8ff] text-[#086fac]"><Copy /> Copiar JSON</Button><pre className="max-h-[560px] overflow-auto whitespace-pre-wrap break-all rounded-xl bg-[#0b1510] p-4 text-xs leading-5 text-[#8ff0aa]">{JSON.stringify(mlApiProductResult, null, 2)}</pre></div></details>
+                  </div>;
+                })()}
               </div>
             </TabsContent>
 

@@ -1,3 +1,4 @@
+import { env } from "cloudflare:workers";
 import { NextResponse } from "next/server";
 import { getMercadoLivreAccessToken, mercadoLivreOAuthStatus } from "@/lib/mercadolivre-oauth";
 import { readIntegrationSecret } from "@/lib/integration-secret";
@@ -35,7 +36,8 @@ async function probe(path: string, token: string): Promise<ApiResult> {
 
 export async function GET(request: Request) {
   const token = await getMercadoLivreAccessToken();
-  const clientId = await readIntegrationSecret("mercadolivre_client_id");
+  const runtime = env as unknown as { MERCADOLIVRE_CLIENT_ID?: string };
+  const clientId = runtime.MERCADOLIVRE_CLIENT_ID?.trim() || await readIntegrationSecret("mercadolivre_client_id");
   const oauth = await mercadoLivreOAuthStatus();
   if (!token || !clientId) return NextResponse.json({ error: "Mercado Livre não conectado." }, { status: 412 });
   const itemId = new URL(request.url).searchParams.get("itemId")?.trim().toUpperCase() || "MLB4960342105";
