@@ -226,6 +226,13 @@ type MonitorRuntime = {
   lastScan: string | null;
   selectedSource?: string;
 };
+type MonitorActivity = {
+  id: string;
+  monitorId: string;
+  at: string;
+  level: "info" | "success" | "warning" | "error";
+  message: string;
+};
 type SendSummary = { productId: string; productTitle?: string | null; sendCount: number; groupCount: number; lastSentAt: string };
 type SendHistoryRow = { id: string; productId: string; productTitle?: string | null; destinationJid: string; destinationName?: string | null; monitorId?: string | null; sendMode: string; sentAt: string };
 
@@ -618,6 +625,7 @@ export default function Dashboard() {
   const [offerMonitors, setOfferMonitors] = useState<OfferMonitor[]>(defaultOfferMonitors);
   const [activeOfferMonitorId, setActiveOfferMonitorId] = useState(defaultOfferMonitors[0].id);
   const [monitorRuntimes, setMonitorRuntimes] = useState<Record<string, MonitorRuntime>>({});
+  const [monitorActivity, setMonitorActivity] = useState<MonitorActivity[]>([]);
   const offerMonitorRunning = useRef(new Set<string>());
   const [sendSummary, setSendSummary] = useState<SendSummary[]>([]);
   const [sendHistory, setSendHistory] = useState<SendHistoryRow[]>([]);
@@ -650,6 +658,11 @@ export default function Dashboard() {
       const configData = await configResponse.json() as { configs?: GroupConfig[] };
       const affiliateData = await affiliateResponse.json() as { settings?: Partial<AffiliateSettings> };
       const buttonData = await buttonResponse.json() as { settings?: Partial<AutomationButtonSettings> };
+      setAffiliate({ ...emptyAffiliate, ...(affiliateData.settings || {}), amazonTrackingId: "", amazonEnabled: false, mercadoLivreEnabled: Boolean(affiliateData.settings?.mercadoLivreEnabled) });
+      setButtonSettings({
+        enabled: Boolean(buttonData.settings?.enabled ?? true),
+        labels: Array.isArray(buttonData.settings?.labels) && buttonData.settings.labels.length ? buttonData.settings.labels : defaultAutomationButtons.labels,
+      });
       if (!groupsResponse.ok) throw new Error(groupsData.error || "Não foi possível carregar os grupos.");
       const nextGroups = groupsData.groups || [];
       const saved = new Map<string, GroupConfig>((configData.configs || []).map((item: GroupConfig) => [item.jid, item]));
@@ -668,11 +681,6 @@ export default function Dashboard() {
       setGroups(nextGroups);
       setWhatsappConnected(Boolean(groupsData.connected));
       setConfigs(merged);
-      setAffiliate({ ...emptyAffiliate, ...(affiliateData.settings || {}), amazonTrackingId: "", amazonEnabled: false, mercadoLivreEnabled: Boolean(affiliateData.settings?.mercadoLivreEnabled) });
-      setButtonSettings({
-        enabled: Boolean(buttonData.settings?.enabled ?? true),
-        labels: Array.isArray(buttonData.settings?.labels) && buttonData.settings.labels.length ? buttonData.settings.labels : defaultAutomationButtons.labels,
-      });
       setDemo(Boolean(groupsData.demo));
     } catch (caught) {
       setWhatsappConnected(false);
@@ -1295,6 +1303,9 @@ export default function Dashboard() {
         // Continua tentando as demais fontes conhecidas do produto.
       }
     }
+    const itemId = String(item.itemId || record.productCode || "").toUpperCase();
+    const itemMatch = itemId.match(/^MLB-?(\d{7,})$/);
+    if (itemMatch) return `https://produto.mercadolivre.com.br/MLB-${itemMatch[1]}`;
     const direct = [record.resolvedUrl, record.sourceUrl, item.url].find((value) => {
       if (!value || !/\bMLB-?\d{7,}\b/i.test(value)) return false;
       try {
@@ -1304,9 +1315,7 @@ export default function Dashboard() {
       }
     });
     if (direct) return direct;
-    const itemId = String(item.itemId || record.productCode || "").toUpperCase();
-    const match = itemId.match(/^MLB-?(\d{7,})$/);
-    return match ? `https://produto.mercadolivre.com.br/MLB-${match[1]}` : "";
+    return "";
   }
 
   async function createMercadoLivreShortAffiliateUrl(record: ProductRecord, item: CatalogItem) {
@@ -1314,7 +1323,14 @@ export default function Dashboard() {
     if (existingShortUrl) return existingShortUrl;
     const sourceUrl = mercadoLivreAffiliateSource(record, item);
     if (!sourceUrl) throw new Error("Não encontrei o código MLB do anúncio para gerar o link curto.");
-    if (!affiliate.mercadoLivreLabel.trim()) throw new Error("Informe sua tag de afiliado em Credenciais antes de gerar a promoção.");
+    let affiliateLabel = affiliate.mercadoLivreLabel.trim();
+    if (!affiliateLabel) {
+      const affiliateResponse = await fetch("/api/affiliate", { cache: "no-store" });
+      const affiliateData = await affiliateResponse.json() as { settings?: Partial<AffiliateSettings>; error?: string };
+      affiliateLabel = affiliateData.settings?.mercadoLivreLabel?.trim() || "";
+      if (affiliateLabel) setAffiliate((current) => ({ ...current, ...affiliateData.settings, mercadoLivreLabel: affiliateLabel, amazonTrackingId: "", amazonEnabled: false }));
+    }
+    if (!affiliateLabel) throw new Error("Informe sua tag de afiliado em Credenciais antes de gerar a promoção.");
     let localFailure = "";
     try {
       let collectorToken = localCollectorToken.trim();
@@ -1328,14 +1344,18 @@ export default function Dashboard() {
         }
       }
       if (collectorToken) {
-        const localResponse = await fetch(`${localCollectorUrl.replace(/\/$/, "")}/generate-affiliate-link`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Promozap-Local-Token": collectorToken },
-          body: JSON.stringify({ input: sourceUrl, tag: affiliate.mercadoLivreLabel.trim() }),
+        const localResult = await retryOnce(async () => {
+          const localResponse = await fetch(`${localCollectorUrl.replace(/\/$/, "")}/generate-affiliate-link`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Promozap-Local-Token": collectorToken },
+            body: JSON.stringify({ input: sourceUrl, tag: affiliateLabel }),
+          });
+          const value = await localResponse.json() as { ok?: boolean; shortUrl?: string; error?: string };
+          if (!localResponse.ok || !value.ok) throw new Error(value.error || "O coletor não recebeu um meli.la.");
+          return value;
         });
-        const localResult = await localResponse.json() as { ok?: boolean; shortUrl?: string; error?: string };
         const localShortUrl = normalizeMercadoLivreShortAffiliateUrl(localResult.shortUrl);
-        if (localResponse.ok && localResult.ok && localShortUrl) return localShortUrl;
+        if (localResult.ok && localShortUrl) return localShortUrl;
         localFailure = localResult.error || "O coletor não recebeu um meli.la.";
       }
     } catch (caught) {
@@ -1349,7 +1369,7 @@ export default function Dashboard() {
         "Content-Type": "application/json",
         ...(whatsapp.instanceToken.trim() ? { "X-Promozap-Admin-Token": whatsapp.instanceToken.trim() } : {}),
       },
-      body: JSON.stringify({ urls: [sourceUrl], tag: affiliate.mercadoLivreLabel.trim(), cookies: mlSessionCookies }),
+      body: JSON.stringify({ urls: [sourceUrl], tag: affiliateLabel, cookies: mlSessionCookies }),
     });
     const result = await response.json() as MercadoLivreTestResult;
     const shortUrl = normalizeMercadoLivreShortAffiliateUrl(result.results?.[0]?.shortUrl);
@@ -1358,18 +1378,20 @@ export default function Dashboard() {
     return shortUrl;
   }
 
-  async function generatePromotionPreview(inputOverride?: string, options: { silent?: boolean } = {}) {
+  async function generatePromotionPreview(inputOverride?: string, options: { silent?: boolean; background?: boolean } = {}) {
     const targetInput = (inputOverride || promotionInput).trim();
     if (!targetInput) {
       if (!options.silent) toast.error("Cole o link do produto.");
       return null;
     }
-    if (inputOverride) setPromotionInput(inputOverride);
-    setPromotionLoading(true);
-    setPromotionItem(null);
-    setPromotionModalOpen(false);
-    setPromotionDataWarning("");
-    setPromotionAffiliateError("");
+    if (!options.background) {
+      if (inputOverride) setPromotionInput(inputOverride);
+      setPromotionLoading(true);
+      setPromotionItem(null);
+      setPromotionModalOpen(false);
+      setPromotionDataWarning("");
+      setPromotionAffiliateError("");
+    }
     try {
       const result = await retryOnce(async () => {
         const response = await fetch("/api/products", {
@@ -1419,7 +1441,7 @@ export default function Dashboard() {
         } catch (collectorError) {
           setLocalCollectorConnected(false);
           const reason = collectorError instanceof Error ? collectorError.message : "O coletor local não conseguiu ler os preços.";
-          setPromotionDataWarning(`${reason} Abra uma vez o arquivo iniciar-coletor.cmd e clique novamente em “Gerar promoção”. Depois disso, esta tela chama o coletor automaticamente.`);
+          if (!options.background) setPromotionDataWarning(`${reason} Abra uma vez o arquivo iniciar-coletor.cmd e clique novamente em “Gerar promoção”. Depois disso, esta tela chama o coletor automaticamente.`);
         }
         try {
           const shortAffiliateUrl = await createMercadoLivreShortAffiliateUrl(record, item);
@@ -1427,22 +1449,24 @@ export default function Dashboard() {
         } catch (affiliateError) {
           const reason = affiliateError instanceof Error ? affiliateError.message : "Não foi possível gerar o link afiliado encurtado.";
           item = { ...item, url: "" };
-          setPromotionAffiliateError(`${reason} O envio foi bloqueado para impedir que o link completo seja publicado por engano.`);
+          if (!options.background) setPromotionAffiliateError(`${reason} O envio foi bloqueado para impedir que o link completo seja publicado por engano.`);
         }
       }
-      setPromotionRecordId(record.id);
-      setPromotionItem(item);
-      setPromotionModalOpen(true);
-      setPromotionIncludeImage(Boolean(item.imageUrl));
       const message = composeOfferMessage(item, item.url || record.sourceUrl, record.store);
-      setPromotionMessage(message);
+      if (!options.background) {
+        setPromotionRecordId(record.id);
+        setPromotionItem(item);
+        setPromotionModalOpen(true);
+        setPromotionIncludeImage(Boolean(item.imageUrl));
+        setPromotionMessage(message);
+      }
       if (!options.silent) toast.success("Promoção pronta para revisar e enviar.");
       return { item, record, store: record.store, message };
     } catch (caught) {
       if (!options.silent) toast.error(caught instanceof Error ? caught.message : "Não foi possível gerar a promoção.");
       return null;
     } finally {
-      setPromotionLoading(false);
+      if (!options.background) setPromotionLoading(false);
     }
   }
 
@@ -1715,6 +1739,11 @@ export default function Dashboard() {
     setOfferMonitors((current) => current.map((monitor) => monitor.id === id ? { ...monitor, ...patch } : monitor));
   }
 
+  function addMonitorActivity(monitorId: string, level: MonitorActivity["level"], message: string) {
+    const entry: MonitorActivity = { id: crypto.randomUUID(), monitorId, at: new Date().toISOString(), level, message };
+    setMonitorActivity((current) => [entry, ...current].slice(0, 40));
+  }
+
   function updateMonitorSource(monitorId: string, sourceId: string, patch: Partial<MonitorSource>) {
     setOfferMonitors((current) => current.map((monitor) => monitor.id === monitorId
       ? { ...monitor, sources: monitor.sources.map((source) => source.id === sourceId ? { ...source, ...patch } : source) }
@@ -1797,6 +1826,7 @@ export default function Dashboard() {
     const monitor = offerMonitors.find((item) => item.id === monitorId);
     if (!monitor || offerMonitorRunning.current.has(monitorId)) return;
     offerMonitorRunning.current.add(monitorId);
+    addMonitorActivity(monitorId, "info", `${monitor.name}: iniciando pesquisa independente${sendAutomatically ? " e envio automático" : ""}.`);
     setMonitorRuntimes((current) => ({ ...current, [monitorId]: { ...(current[monitorId] || { offers: [], error: "", lastScan: null }), loading: true, error: "" } }));
     try {
       if (!monitor.destinationJid && sendAutomatically) throw new Error("Escolha o grupo exclusivo desta operação antes de ativar o envio.");
@@ -1811,6 +1841,7 @@ export default function Dashboard() {
       }
       const selectedSource = monitor.kind === "hub" ? monitor.sources[0] : chooseWeightedSource(monitor.sources);
       if (!selectedSource?.url) throw new Error("Cadastre pelo menos uma URL com peso maior que zero.");
+      addMonitorActivity(monitorId, "info", `${monitor.name}: lendo ${new URL(selectedSource.url).hostname}.`);
       const endpoint = monitor.kind === "hub" ? "/scan-affiliate-hub" : "/scan-deals";
       const payload = monitor.kind === "hub" ? {} : {
         monitorId, mode: "marketplace", url: selectedSource.url, limit: Math.min(500, monitor.maxPages * 50),
@@ -1830,17 +1861,23 @@ export default function Dashboard() {
       });
       setMonitorRuntimes((current) => ({ ...current, [monitorId]: { offers: products, loading: false, error: "", lastScan: data.capturedAt || new Date().toISOString(), selectedSource: selectedSource.url } }));
       setLocalCollectorConnected(true);
+      addMonitorActivity(monitorId, products.length ? "success" : "warning", `${monitor.name}: ${products.length} oferta(s) aprovada(s) pelos filtros.`);
       if (!products.length) toast.info(`${monitor.name}: nenhum produto passou por todos os filtros.`);
 
       if (sendAutomatically) {
         if (!whatsapp.instanceToken.trim()) throw new Error("Configure o token da UAZAPI antes de ativar o envio automático.");
         const sent = monitorCooldowns(monitorId);
         const selected = products.find((offer) => !sent[offer.itemId || offer.id || offer.url || ""]);
-        if (!selected?.url) return;
-        const prepared = await generatePromotionPreview(selected.url, { silent: true });
+        if (!selected?.url) {
+          addMonitorActivity(monitorId, "warning", `${monitor.name}: nenhuma oferta elegível fora do cooldown de 24 horas.`);
+          return;
+        }
+        addMonitorActivity(monitorId, "info", `${monitor.name}: preparando “${selected.title}” em segundo plano.`);
+        const prepared = await generatePromotionPreview(selected.url, { silent: true, background: true });
         if (!prepared) throw new Error("A oferta passou pelos filtros, mas a mensagem não pôde ser preparada.");
         validateAutomaticOfferPricing(selected, prepared.item);
         if (!isMercadoLivreShortAffiliateUrl(prepared.item.url)) throw new Error("O Mercado Livre não devolveu o link curto meli.la. Nada foi enviado.");
+        addMonitorActivity(monitorId, "success", `${monitor.name}: link curto confirmado; enviando ao grupo exclusivo.`);
         const reviewCards = carouselEnabled ? (prepared.item.reviews || []).flatMap((review) => {
           const firstMedia = review.media?.[0] || (review.videos?.[0] ? { type: "video" as const, url: review.videos[0] } : null) || (review.images?.[0] ? { type: "image" as const, url: review.images[0] } : null);
           if (!firstMedia) return [];
@@ -1856,11 +1893,13 @@ export default function Dashboard() {
         window.localStorage.setItem(`promozap.monitor.sent.${monitorId}`, JSON.stringify({ ...sent, [key]: new Date().toISOString() }));
         if (prepared.record.id) await fetch("/api/products", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: prepared.record.id, status: "sent", destinationGroup: monitor.destinationJid }) }).catch(() => undefined);
         toast.success(`${monitor.name}: oferta enviada para o grupo configurado.`);
+        addMonitorActivity(monitorId, "success", `${monitor.name}: “${selected.title}” enviada com sucesso.`);
         void loadSendHistory();
       }
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Falha na operação.";
       setMonitorRuntimes((current) => ({ ...current, [monitorId]: { ...(current[monitorId] || { offers: [], lastScan: null }), loading: false, error: message } }));
+      addMonitorActivity(monitorId, "error", `${monitor.name}: ${message}`);
       setLocalCollectorConnected(false);
     } finally { offerMonitorRunning.current.delete(monitorId); }
   }
@@ -2259,6 +2298,12 @@ export default function Dashboard() {
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><CardTitle className="flex items-center gap-2 text-xl"><Radar className="size-5 text-[#30dd6b]" /> Operações de monitoramento</CardTitle><CardDescription className="mt-2 max-w-3xl">Cada operação pesquisa suas próprias fontes, aplica seus filtros e envia somente para o grupo escolhido. Produtos enviados entram em cooldown por 24 horas dentro daquela operação.</CardDescription></div><Button type="button" onClick={addOfferMonitor} variant="outline" className="border-[#35483d] bg-[#111813] text-white"><Plus /> Novo nicho</Button></div>
                   </CardHeader>
                   <CardContent className="space-y-5 pt-5">
+                    <div className="rounded-2xl border border-[#d6e2da] bg-[#f7fbf8] p-4 text-[#203128]">
+                      <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-sm font-black">Atividade dos monitoramentos</p><p className="mt-1 text-xs text-[#66776d]">As buscas e o preparo automático acontecem em segundo plano, sem abrir a janela de edição.</p></div><div className="flex flex-wrap gap-2">{offerMonitors.map((monitor) => { const runtime = monitorRuntimes[monitor.id]; return <Badge key={monitor.id} className={runtime?.loading ? "bg-[#fff0bd] text-[#715400]" : monitor.autoSend ? "bg-[#dff7e7] text-[#176b38]" : "bg-[#e9eef1] text-[#53636d]"}>{runtime?.loading ? "Pesquisando" : monitor.autoSend ? "Ativo" : "Pausado"} · {monitor.name}</Badge>; })}</div></div>
+                      <div className="mt-3 max-h-36 space-y-1.5 overflow-y-auto rounded-xl border border-[#dce6df] bg-white p-3 font-mono text-[11px] leading-5">
+                        {monitorActivity.length ? monitorActivity.slice(0, 16).map((entry) => <div key={entry.id} className="grid grid-cols-[64px_minmax(0,1fr)] gap-2"><span className="text-[#7b8a81]">{new Date(entry.at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span><span className={entry.level === "error" ? "text-[#b42318]" : entry.level === "warning" ? "text-[#8a6100]" : entry.level === "success" ? "text-[#13783d]" : "text-[#405149]"}>{entry.message}</span></div>) : <p className="text-[#7b8a81]">Ative uma operação ou clique em “Pesquisar agora” para acompanhar cada etapa.</p>}
+                      </div>
+                    </div>
                     <div className="flex gap-2 overflow-x-auto pb-1">{offerMonitors.map((monitor) => { const selected = monitor.id === activeOfferMonitor?.id; return <button key={monitor.id} type="button" onClick={() => setActiveOfferMonitorId(monitor.id)} className={`min-w-52 rounded-xl border p-3 text-left transition ${selected ? "border-[#22c55e] bg-[#e9fff0] text-[#153824] shadow-[0_0_0_2px_rgba(34,197,94,.12)]" : "border-[#d8e0e6] bg-white text-[#253545] hover:border-[#9fcfb0]"}`}><span className="block truncate text-sm font-black">{monitor.name}</span><span className={`mt-1 block text-xs ${selected ? "text-[#39734d]" : "text-[#6b7c89]"}`}>{monitor.autoSend ? "● Automático" : "○ Manual"} · {monitor.kind === "hub" ? "Hub" : `${monitor.sources.length} fonte(s)`}</span></button>; })}</div>
                     {activeOfferMonitor ? <>
                       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
