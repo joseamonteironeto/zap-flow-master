@@ -64,3 +64,15 @@ export const automationLogs = sqliteTable("automation_logs", {
   productId: text("product_id"),
   createdAt: text("created_at").notNull(),
 });
+
+export const offerSends = sqliteTable("offer_sends", {
+  id: text("id").primaryKey(),
+  productId: text("product_id").notNull(),
+  productTitle: text("product_title"),
+  productUrl: text("product_url"),
+  destinationJid: text("destination_jid").notNull(),
+  destinationName: text("destination_name"),
+  monitorId: text("monitor_id"),
+  sendMode: text("send_mode").notNull().default("manual"),
+  sentAt: text("sent_at").notNull(),
+});

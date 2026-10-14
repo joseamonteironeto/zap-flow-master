@@ -48,6 +48,9 @@ export async function POST(request: Request) {
     : [];
   const productUrl = trustedLink(clean(body.productUrl, 4000));
   const productId = clean(body.productId, 100);
+  const productTitle = clean(body.productTitle, 300);
+  const monitorId = clean(body.monitorId, 100);
+  const sendMode = monitorId ? "monitor" : "manual";
   const carouselEnabled = body.carouselEnabled !== false;
   const carouselButtonLabel = clean(body.carouselButtonLabel, 25) || "VER OFERTA";
   if (!destinationJid || !text) return NextResponse.json({ error: "Escolha o grupo e escreva a mensagem." }, { status: 400 });
@@ -108,6 +111,11 @@ export async function POST(request: Request) {
     });
     const providerResponse = await response.text();
     if (!response.ok) throw new Error(`UAZAPI respondeu HTTP ${response.status}: ${providerResponse.slice(0, 240)}`);
+    const sentAt = new Date().toISOString();
+    await env.DB.prepare(`INSERT INTO offer_sends
+      (id, product_id, product_title, product_url, destination_jid, destination_name, monitor_id, send_mode, sent_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(crypto.randomUUID(), productId || productUrl || crypto.randomUUID(), productTitle || null, productUrl, destination.jid, destination.name || null, monitorId || null, sendMode, sentAt).run();
     await automationLog({ level: "success", stage: "manual_send", message: `Oferta enviada manualmente para ${destination.name || destination.jid}.`, groupJid: destination.jid, productId: productId || undefined, details: { withImage: Boolean(imageUrl), carouselCards: useCarousel ? reviewCards.length + 1 : 0, reviewMediaCards: useCarousel ? reviewCards.length : 0, providerStatus: response.status } });
     return NextResponse.json({ ok: true, destination: destination.name || destination.jid, withImage: Boolean(imageUrl), carouselCards: useCarousel ? reviewCards.length + 1 : 0, reviewMediaCards: useCarousel ? reviewCards.length : 0 });
   } catch (error) {

@@ -478,6 +478,7 @@ const dealsExtractor = String.raw`(() => {
       soldText: text.match(/\+?[\d.,]+\s*(?:mil\s+)?vendidos/i)?.[0] || null,
       freeShipping: /frete grátis|chegará grátis/i.test(text),
       dealOfDay: /OFERTA DO DIA/i.test(text),
+      isInternational: /(?:compra|envio|produto)\s+internacional|internacional/i.test(text),
       sourceText: text,
     };
   }).filter(Boolean);
@@ -946,10 +947,13 @@ async function scanDeals(options = {}) {
   const monitorAll = Boolean(options.monitorAll) && mode === "offers";
   const collectionLimit = scanLimit;
   const minDiscount = Math.max(0, Math.min(95, Number(options.minDiscount) || 0));
+  const minRating = Math.max(0, Math.min(5, Number(options.minRating) || 0));
+  const requestedMaxPages = Math.max(1, Math.min(50, Number(options.maxPages) || 10));
+  const ignoreInternational = options.ignoreInternational !== false;
   const couponsOnly = Boolean(options.couponsOnly);
   const realDealsOnly = Boolean(options.realDealsOnly);
   const smartphoneFocus = Boolean(source) || Boolean(options.smartphoneFocus) || /celulares e telefones/i.test(requestedCategory) && realDealsOnly;
-  const cacheKey = JSON.stringify({ source, mode, startUrl, requestedCategory, query, limit, scanLimit, minDiscount, couponsOnly, realDealsOnly, smartphoneFocus, monitorAll });
+  const cacheKey = JSON.stringify({ source, mode, startUrl, requestedCategory, query, limit, scanLimit, minDiscount, minRating, requestedMaxPages, ignoreInternational, couponsOnly, realDealsOnly, smartphoneFocus, monitorAll });
   const cached = dealsCache.get(cacheKey);
   if (!monitorAll && cached && Date.now() - cached.savedAt < 90_000) return { ...cached.value, cached: true };
   if (activeDealsRun) {
@@ -972,7 +976,7 @@ async function scanDeals(options = {}) {
   try {
     await client.call("Page.enable");
     await client.call("Runtime.enable");
-    const maxPages = Math.min(240, Math.max(requestedCategory ? 4 : 6, Math.ceil(collectionLimit / 40) + 2));
+    const maxPages = requestedMaxPages;
     for (let page = 0; page < maxPages && currentUrl && collected.length < collectionLimit; page += 1) {
       if (run.cancelled) throw new Error("Busca substituída por uma categoria mais recente.");
       const loaded = client.waitFor("Page.loadEventFired", 30000);
@@ -1008,6 +1012,8 @@ async function scanDeals(options = {}) {
       for (const card of pageData.cards || []) {
         const scored = scoreDeal(card);
         if ((scored.realDiscountPercentage || 0) < minDiscount) continue;
+        if (minRating > 0 && (!Number.isFinite(scored.rating) || scored.rating < minRating)) continue;
+        if (ignoreInternational && scored.isInternational) continue;
         if (couponsOnly && !scored.coupon) continue;
         const candidate = {
           ...scored,
@@ -1058,7 +1064,7 @@ async function scanDeals(options = {}) {
       changes: { baselineCreated: monitorAll && !changes.hasBaseline, newCount: changes.newUrls.size, priceDropCount: changes.drops.size },
       categories,
       products,
-      criteria: { limit, scanLimit, minDiscount, couponsOnly, realDealsOnly, smartphoneFocus, monitorAll },
+      criteria: { limit, scanLimit, minDiscount, minRating, maxPages, ignoreInternational, couponsOnly, realDealsOnly, smartphoneFocus, monitorAll },
     };
     dealsCache.set(cacheKey, { savedAt: Date.now(), value });
     return value;
