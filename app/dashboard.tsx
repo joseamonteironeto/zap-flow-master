@@ -1795,17 +1795,20 @@ export default function Dashboard() {
     if (!Number.isFinite(price) || price <= 0) throw new Error("O produto foi ignorado porque o preço atual não pôde ser confirmado.");
     const advertisedDiscount = Number(selected.discountPercentage) || 0;
     const originalPrice = Number(prepared.originalPrice);
+    const scannedPrice = Number(selected.price || selected.effectivePrice);
+    const currentPriceRatio = Number.isFinite(scannedPrice) && scannedPrice > 0 ? price / scannedPrice : null;
+    const currentPricesAreCompatible = currentPriceRatio != null && currentPriceRatio >= 0.75 && currentPriceRatio <= 1.25;
+    if (currentPriceRatio != null && !currentPricesAreCompatible) {
+      throw new Error("O produto foi ignorado porque a vitrine e a página exibiram preços atuais muito diferentes.");
+    }
     if (advertisedDiscount >= 10 && (!Number.isFinite(originalPrice) || originalPrice <= price)) {
       throw new Error("O produto foi ignorado: havia desconto anunciado, mas o preço anterior não foi confirmado na página.");
     }
     if (Number.isFinite(originalPrice) && originalPrice > price && advertisedDiscount >= 10) {
       const calculated = Math.round((1 - price / originalPrice) * 100);
-      if (Math.abs(calculated - advertisedDiscount) > 8) throw new Error("O produto foi ignorado porque preço e desconto estavam inconsistentes.");
-    }
-    const scannedPrice = Number(selected.price || selected.effectivePrice);
-    if (Number.isFinite(scannedPrice) && scannedPrice > 0) {
-      const ratio = price / scannedPrice;
-      if (ratio < 0.5 || ratio > 2) throw new Error("O produto foi ignorado porque a vitrine e a página exibiram preços muito diferentes.");
+      if (!currentPricesAreCompatible && Math.abs(calculated - advertisedDiscount) > 8) {
+        throw new Error("O produto foi ignorado porque preço e desconto estavam inconsistentes.");
+      }
     }
   }
 
