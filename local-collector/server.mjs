@@ -219,10 +219,16 @@ const extractor = String.raw`(() => {
   const allText = (selector) => [...document.querySelectorAll(selector)].map((node) => node.textContent?.trim()).filter(Boolean);
   const money = (value) => {
     const match = String(value || '').match(/(?:R\$\s*)?([\d.]+(?:,\d{1,2})?)/);
-    return match ? Number(match[1].replace(/\./g, '').replace(',', '.')) : null;
+    if (!match) return null;
+    const raw = match[1];
+    const normalized = raw.includes(',')
+      ? raw.replace(/\./g, '').replace(',', '.')
+      : /^\d{1,3}\.\d{2}$/.test(raw) ? raw : raw.replace(/\./g, '');
+    const amount = Number(normalized);
+    return Number.isFinite(amount) ? amount : null;
   };
   const moneyAll = (value) => [...String(value || '').matchAll(/R\$\s*([\d.]+(?:,\d{1,2})?)/g)]
-    .map((match) => Number(match[1].replace(/\./g, '').replace(',', '.'))).filter(Number.isFinite);
+    .map((match) => money(match[0])).filter(Number.isFinite);
   const number = (value) => {
     const match = String(value || '').match(/([\d.,]+)/);
     if (!match) return null;
@@ -336,19 +342,7 @@ const extractor = String.raw`(() => {
     originalPrice,
     discountPercentage,
     discountText,
-    coupon: couponText ? {
-      available: true,
-      text: couponText,
-      code: couponCode,
-      price: couponPrice,
-      amountOff,
-      percentageOff: amountOff && standardPrice ? Math.round((amountOff / standardPrice) * 1000) / 10 : null,
-      minimumPurchase,
-      appliesToSingleItem: couponAppliesToSingleItem,
-      automatic: !couponCode,
-      conditions: promotionTexts,
-      personalized: Boolean(trackedProduct.user_type && trackedProduct.user_type !== 'not_apply'),
-    } : null,
+    coupon: null,
     installments: installmentText ? { text: installmentText, quantity: installmentCount, amount: installmentAmount, noInterest: /sem juros/i.test(installmentText) } : null,
     availability: productJson?.offers?.availability || null,
     priceValidUntil: productJson?.offers?.priceValidUntil || null,
@@ -471,7 +465,7 @@ const dealsExtractor = String.raw`(() => {
       pixPrice: /no Pix/i.test(text) ? current : null,
       discountPercentage,
       discountText,
-      coupon,
+      coupon: null,
       seller,
       officialStore: /Loja oficial/i.test(text) || Boolean(card.querySelector('img[alt*="Loja oficial" i], [aria-label*="Loja oficial" i]')),
       rating: Number(ratingText.match(/([\d.,]+)\s+de\s+5/i)?.[1]?.replace(',', '.') || text.match(/\b([1-5][.,]\d)\s*\|/)?.[1]?.replace(',', '.')) || null,
@@ -487,14 +481,20 @@ const dealsExtractor = String.raw`(() => {
 })()`;
 
 let scrapeQueue = Promise.resolve();
-let activeDealsRun = null;
+const activeDealsRuns = new Map();
 const dealsCache = new Map();
 
 const affiliateHubExtractor = `(() => {
   const money = (value) => {
     if (!value) return null;
-    const match = String(value).match(/R\\$\\s*([\\d.]+)\\s*(?:,\\s*(\\d{1,2}))?/i);
-    return match ? Number(\`\${match[1].replace(/\\./g, '')}.\${match[2] || '0'}\`) : null;
+    const match = String(value).match(/R\\$\\s*([\\d.]+(?:,\\s*\\d{1,2})?)/i);
+    if (!match) return null;
+    const raw = match[1].replace(/\\s/g, '');
+    const normalized = raw.includes(',')
+      ? raw.replace(/\\./g, '').replace(',', '.')
+      : /^\\d{1,3}\\.\\d{2}$/.test(raw) ? raw : raw.replace(/\\./g, '');
+    const amount = Number(normalized);
+    return Number.isFinite(amount) ? amount : null;
   };
   const clean = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
   const imageUrl = (root) => {
@@ -571,7 +571,7 @@ const affiliateHubExtractor = `(() => {
     const badge = text.match(/(?:MAIS BUSCADO|MAIS VENDIDO|OFERTA IMPERD[IÍ]VEL|GANHOS EXTRAS|OFERTA DO DIA)/i)?.[0] || null;
     products.push({ itemId, title: title || 'Oferta Mercado Livre', url: href, imageUrl: imageUrl(card),
       price: current, effectivePrice: current, originalPrice: previous, discountPercentage: calculatedDiscount,
-      affiliateEarningsPercentage: earnings, rating, soldText, badge, coupon: /cupom/i.test(text) ? { available: true, text: text.match(/[^.]{0,35}cupom[^.]{0,55}/i)?.[0] || 'Cupom disponível' } : null,
+      affiliateEarningsPercentage: earnings, rating, soldText, badge, coupon: null,
       freeShipping: /frete gr[aá]tis/i.test(text), sourceText: text });
     seen.add(itemId);
   }
@@ -785,13 +785,12 @@ async function waitForPage(client, selectorExpression, timeout = 30000) {
 }
 
 function scoreDeal(product) {
-  const effectivePrice = product.coupon?.price || product.pixPrice || product.price;
+  const effectivePrice = product.pixPrice || product.price;
   const referencePrice = product.originalPrice;
   const realDiscount = referencePrice && effectivePrice && referencePrice > effectivePrice
     ? Math.round(((referencePrice - effectivePrice) / referencePrice) * 1000) / 10
     : product.discountPercentage || 0;
   let score = Math.min(60, realDiscount * 1.15);
-  if (product.coupon) score += 14;
   if (product.dealOfDay) score += 8;
   if (product.freeShipping) score += 6;
   if (product.officialStore) score += 5;
@@ -799,7 +798,6 @@ function scoreDeal(product) {
   if (/mil vendidos/i.test(product.soldText || "")) score += 3;
   const reasons = [];
   if (realDiscount) reasons.push(`${realDiscount}% abaixo do preço anterior`);
-  if (product.coupon) reasons.push(product.coupon.text);
   if (product.freeShipping) reasons.push("frete grátis");
   if (product.officialStore) reasons.push("loja oficial");
   return {
@@ -855,7 +853,7 @@ function mergeDuplicateDeal(existing, candidate) {
     ...other,
     ...winner,
     productId: productIdFromUrl(winner.url) || productIdFromUrl(other.url) || existing.productId || candidate.productId || null,
-    coupon: winner.coupon || other.coupon || null,
+    coupon: null,
     officialStore: Boolean(winner.officialStore || other.officialStore),
     freeShipping: Boolean(winner.freeShipping || other.freeShipping),
     rating: Math.max(Number(winner.rating) || 0, Number(other.rating) || 0) || null,
@@ -950,18 +948,20 @@ async function scanDeals(options = {}) {
   const minRating = Math.max(0, Math.min(5, Number(options.minRating) || 0));
   const requestedMaxPages = Math.max(1, Math.min(50, Number(options.maxPages) || 10));
   const ignoreInternational = options.ignoreInternational !== false;
-  const couponsOnly = Boolean(options.couponsOnly);
+  const couponsOnly = false;
   const realDealsOnly = Boolean(options.realDealsOnly);
   const smartphoneFocus = Boolean(source) || Boolean(options.smartphoneFocus) || /celulares e telefones/i.test(requestedCategory) && realDealsOnly;
   const cacheKey = JSON.stringify({ source, mode, startUrl, requestedCategory, query, limit, scanLimit, minDiscount, minRating, requestedMaxPages, ignoreInternational, couponsOnly, realDealsOnly, smartphoneFocus, monitorAll });
   const cached = dealsCache.get(cacheKey);
   if (!monitorAll && cached && Date.now() - cached.savedAt < 90_000) return { ...cached.value, cached: true };
-  if (activeDealsRun) {
-    activeDealsRun.cancelled = true;
-    await closeChromeTarget(activeDealsRun.target, activeDealsRun.client);
+  const runKey = String(options.monitorId || cacheKey);
+  const previousRun = activeDealsRuns.get(runKey);
+  if (previousRun) {
+    previousRun.cancelled = true;
+    await closeChromeTarget(previousRun.target, previousRun.client);
   }
   const run = { cancelled: false, target: null, client: null };
-  activeDealsRun = run;
+  activeDealsRuns.set(runKey, run);
   const { target, client } = await createChromeTarget();
   run.target = target;
   run.client = client;
@@ -1070,7 +1070,7 @@ async function scanDeals(options = {}) {
     return value;
   } finally {
     await closeChromeTarget(target, client);
-    if (activeDealsRun === run) activeDealsRun = null;
+    if (activeDealsRuns.get(runKey) === run) activeDealsRuns.delete(runKey);
   }
 }
 
