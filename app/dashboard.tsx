@@ -201,7 +201,49 @@ type AffiliateHubOffer = MonitoredDeal & {
   soldText?: string | null;
   badge?: string | null;
   isNew?: boolean;
+  isInternational?: boolean;
 };
+
+type MonitorSource = { id: string; url: string; weight: number };
+type OfferMonitor = {
+  id: string;
+  name: string;
+  kind: "hub" | "urls";
+  destinationJid: string;
+  intervalMinutes: number;
+  autoSend: boolean;
+  minRating: number;
+  minDiscount: number;
+  maxPages: number;
+  ignoreInternational: boolean;
+  sources: MonitorSource[];
+};
+type MonitorRuntime = {
+  offers: AffiliateHubOffer[];
+  loading: boolean;
+  error: string;
+  lastScan: string | null;
+  selectedSource?: string;
+};
+type SendSummary = { productId: string; productTitle?: string | null; sendCount: number; groupCount: number; lastSentAt: string };
+type SendHistoryRow = { id: string; productId: string; productTitle?: string | null; destinationJid: string; destinationName?: string | null; monitorId?: string | null; sendMode: string; sentAt: string };
+
+const defaultOfferMonitors: OfferMonitor[] = [
+  {
+    id: "geral-hub", name: "Ofertas gerais", kind: "hub", destinationJid: "", intervalMinutes: 5,
+    autoSend: false, minRating: 0, minDiscount: 0, maxPages: 10, ignoreInternational: true,
+    sources: [{ id: "hub", url: "https://www.mercadolivre.com.br/afiliados/hub", weight: 100 }],
+  },
+  {
+    id: "smartphones", name: "Celulares e Smartphones", kind: "urls", destinationJid: "", intervalMinutes: 5,
+    autoSend: false, minRating: 4.7, minDiscount: 20, maxPages: 10, ignoreInternational: true,
+    sources: [
+      { id: "smartphones-busca", url: "https://lista.mercadolivre.com.br/smartphone?sb=all_mercadolibre", weight: 50 },
+      { id: "smartphones-ofertas", url: "https://lista.mercadolivre.com.br/_Container_lp-smfs-geral-26_NoIndex_True", weight: 30 },
+      { id: "carregadores", url: "https://lista.mercadolivre.com.br/carregador-celular?sb=all_mercadolibre", weight: 20 },
+    ],
+  },
+];
 
 const defaultOfferTemplate = `🔥 *{{titulo}}*
 
@@ -566,6 +608,13 @@ export default function Dashboard() {
   const [affiliateHubDestination, setAffiliateHubDestination] = useState("");
   const [affiliateHubSentRevision, setAffiliateHubSentRevision] = useState(0);
   const affiliateHubRunning = useRef(false);
+  const [offerMonitors, setOfferMonitors] = useState<OfferMonitor[]>(defaultOfferMonitors);
+  const [activeOfferMonitorId, setActiveOfferMonitorId] = useState(defaultOfferMonitors[0].id);
+  const [monitorRuntimes, setMonitorRuntimes] = useState<Record<string, MonitorRuntime>>({});
+  const offerMonitorRunning = useRef(new Set<string>());
+  const [sendSummary, setSendSummary] = useState<SendSummary[]>([]);
+  const [sendHistory, setSendHistory] = useState<SendHistoryRow[]>([]);
+  const [sendHistoryLoading, setSendHistoryLoading] = useState(false);
   const [catalogCredentials, setCatalogCredentials] = useState({ mercadoLivreConfigured: false, mercadoLivreAppConfigured: false, mercadoLivreExpiresAt: null as string | null, mercadoLivreUserId: null as string | null });
   const [mercadoLivreAccessToken, setMercadoLivreAccessToken] = useState("");
   const [mercadoLivreClientId, setMercadoLivreClientId] = useState("1038957964690859");
@@ -639,6 +688,7 @@ export default function Dashboard() {
     const savedCarouselEnabled = window.localStorage.getItem("promozap.carousel.enabled.v1");
     const savedCarouselButton = window.localStorage.getItem("promozap.carousel.buttonLabel.v1");
     const savedHubSettings = window.localStorage.getItem("promozap.affiliateHub.settings.v1");
+    const savedOfferMonitors = window.localStorage.getItem("promozap.offerMonitors.v1");
     if (savedUrl) setLocalCollectorUrl(savedUrl);
     if (savedToken) setLocalCollectorToken(savedToken);
     let initialTemplates: OfferTemplatePreset[] = [{ id: "padrao", name: "Padrão", content: savedTemplate || defaultOfferTemplate }];
@@ -663,11 +713,25 @@ export default function Dashboard() {
         if (settings.destination) setAffiliateHubDestination(settings.destination);
       } catch {}
     }
+    if (savedOfferMonitors) {
+      try {
+        const parsed = JSON.parse(savedOfferMonitors) as OfferMonitor[];
+        const valid = Array.isArray(parsed) ? parsed.filter((item) => item?.id && item?.name && Array.isArray(item.sources)) : [];
+        if (valid.length) {
+          setOfferMonitors(valid);
+          setActiveOfferMonitorId(valid[0].id);
+        }
+      } catch {}
+    }
   }, []);
 
   useEffect(() => {
     window.localStorage.setItem("promozap.affiliateHub.settings.v1", JSON.stringify({ interval: affiliateHubInterval, destination: affiliateHubDestination }));
   }, [affiliateHubInterval, affiliateHubDestination]);
+
+  useEffect(() => {
+    window.localStorage.setItem("promozap.offerMonitors.v1", JSON.stringify(offerMonitors));
+  }, [offerMonitors]);
 
   useEffect(() => {
     if (!whatsappLoaded) return;
@@ -1391,7 +1455,7 @@ export default function Dashboard() {
         const response = await fetch("/api/offers/send", {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Promozap-Admin-Token": whatsapp.instanceToken.trim() },
-          body: JSON.stringify({ destinationJid, text: promotionMessage, imageUrl: promotionItem.imageUrl, includeImage: promotionIncludeImage, reviewCards, carouselEnabled, carouselButtonLabel: selectedButtonLabel, productUrl: promotionItem.url, productId: promotionItem.itemId || promotionItem.id }),
+          body: JSON.stringify({ destinationJid, text: promotionMessage, imageUrl: promotionItem.imageUrl, includeImage: promotionIncludeImage, reviewCards, carouselEnabled, carouselButtonLabel: selectedButtonLabel, productUrl: promotionItem.url, productId: promotionItem.itemId || promotionItem.id, productTitle: promotionItem.title }),
         });
         const result = await response.json() as { error?: string };
         if (!response.ok) throw new Error(result.error || "Falha no envio.");
@@ -1594,7 +1658,7 @@ export default function Dashboard() {
         const sendResponse = await fetch("/api/offers/send", {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Promozap-Admin-Token": whatsapp.instanceToken.trim() },
-          body: JSON.stringify({ destinationJid: affiliateHubDestination, text: prepared.message, imageUrl: prepared.item.imageUrl, includeImage: Boolean(prepared.item.imageUrl), reviewCards, carouselEnabled, carouselButtonLabel: carouselButtonLabel.trim() || "VER OFERTA", productUrl: prepared.item.url, productId: prepared.item.itemId || prepared.item.id }),
+          body: JSON.stringify({ destinationJid: affiliateHubDestination, text: prepared.message, imageUrl: prepared.item.imageUrl, includeImage: Boolean(prepared.item.imageUrl), reviewCards, carouselEnabled, carouselButtonLabel: carouselButtonLabel.trim() || "VER OFERTA", productUrl: prepared.item.url, productId: prepared.item.itemId || prepared.item.id, productTitle: prepared.item.title, monitorId: "geral-hub" }),
         });
         const sendResult = await sendResponse.json() as { error?: string };
         if (!sendResponse.ok) throw new Error(sendResult.error || "A UAZAPI recusou o envio automático.");
@@ -1615,6 +1679,140 @@ export default function Dashboard() {
       setAffiliateHubLoading(false);
       affiliateHubRunning.current = false;
     }
+  }
+
+  function updateOfferMonitor(id: string, patch: Partial<OfferMonitor>) {
+    setOfferMonitors((current) => current.map((monitor) => monitor.id === id ? { ...monitor, ...patch } : monitor));
+  }
+
+  function updateMonitorSource(monitorId: string, sourceId: string, patch: Partial<MonitorSource>) {
+    setOfferMonitors((current) => current.map((monitor) => monitor.id === monitorId
+      ? { ...monitor, sources: monitor.sources.map((source) => source.id === sourceId ? { ...source, ...patch } : source) }
+      : monitor));
+  }
+
+  function addOfferMonitor() {
+    const id = crypto.randomUUID();
+    const next: OfferMonitor = {
+      id, name: `Novo nicho ${offerMonitors.length}`, kind: "urls", destinationJid: "", intervalMinutes: 5,
+      autoSend: false, minRating: 4.7, minDiscount: 20, maxPages: 10, ignoreInternational: true,
+      sources: [{ id: crypto.randomUUID(), url: "", weight: 100 }],
+    };
+    setOfferMonitors((current) => [...current, next]);
+    setActiveOfferMonitorId(id);
+  }
+
+  function removeOfferMonitor(id: string) {
+    if (id === "geral-hub") return toast.error("Mantenha a operação de ofertas gerais.");
+    setOfferMonitors((current) => {
+      const next = current.filter((monitor) => monitor.id !== id);
+      setActiveOfferMonitorId(next[0]?.id || "geral-hub");
+      return next;
+    });
+  }
+
+  function chooseWeightedSource(sources: MonitorSource[]) {
+    const valid = sources.filter((source) => source.url.trim() && source.weight > 0);
+    const total = valid.reduce((sum, source) => sum + source.weight, 0);
+    if (!valid.length || total <= 0) return null;
+    let cursor = Math.random() * total;
+    for (const source of valid) {
+      cursor -= source.weight;
+      if (cursor <= 0) return source;
+    }
+    return valid.at(-1) || null;
+  }
+
+  function monitorCooldowns(monitorId: string) {
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(`promozap.monitor.sent.${monitorId}`) || "{}") as Record<string, string>;
+      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+      return Object.fromEntries(Object.entries(parsed).filter(([, sentAt]) => Date.parse(sentAt) > cutoff));
+    } catch { return {} as Record<string, string>; }
+  }
+
+  async function loadSendHistory() {
+    setSendHistoryLoading(true);
+    try {
+      const response = await fetch(`/api/sends${productSearch.trim() ? `?search=${encodeURIComponent(productSearch.trim())}` : ""}`);
+      const data = await response.json() as { history?: SendHistoryRow[]; summary?: SendSummary[]; error?: string };
+      if (!response.ok) throw new Error(data.error || "Falha ao carregar envios.");
+      setSendHistory(data.history || []);
+      setSendSummary((data.summary || []).map((row) => ({ ...row, sendCount: Number(row.sendCount), groupCount: Number(row.groupCount) })));
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "Falha ao carregar envios.");
+    } finally { setSendHistoryLoading(false); }
+  }
+
+  async function scanOfferMonitor(monitorId: string, sendAutomatically = false) {
+    const monitor = offerMonitors.find((item) => item.id === monitorId);
+    if (!monitor || offerMonitorRunning.current.has(monitorId)) return;
+    offerMonitorRunning.current.add(monitorId);
+    setMonitorRuntimes((current) => ({ ...current, [monitorId]: { ...(current[monitorId] || { offers: [], error: "", lastScan: null }), loading: true, error: "" } }));
+    try {
+      if (!monitor.destinationJid && sendAutomatically) throw new Error("Escolha o grupo exclusivo desta operação antes de ativar o envio.");
+      let collectorToken = localCollectorToken.trim();
+      if (!collectorToken) {
+        const sessionResponse = await fetch(`${localCollectorUrl.replace(/\/$/, "")}/session`, { cache: "no-store" });
+        const session = await sessionResponse.json() as { ok?: boolean; token?: string; error?: string };
+        if (!sessionResponse.ok || !session.token) throw new Error(session.error || "Abra o coletor local.");
+        collectorToken = session.token;
+        setLocalCollectorToken(collectorToken);
+        window.localStorage.setItem("promozap.localCollectorToken", collectorToken);
+      }
+      const selectedSource = monitor.kind === "hub" ? monitor.sources[0] : chooseWeightedSource(monitor.sources);
+      if (!selectedSource?.url) throw new Error("Cadastre pelo menos uma URL com peso maior que zero.");
+      const endpoint = monitor.kind === "hub" ? "/scan-affiliate-hub" : "/scan-deals";
+      const payload = monitor.kind === "hub" ? {} : {
+        mode: "marketplace", url: selectedSource.url, limit: Math.min(500, monitor.maxPages * 50),
+        scanLimit: Math.min(10000, monitor.maxPages * 50), maxPages: monitor.maxPages,
+        minDiscount: monitor.minDiscount, minRating: monitor.minRating,
+        ignoreInternational: monitor.ignoreInternational, realDealsOnly: false, smartphoneFocus: /celular|smartphone/i.test(monitor.name),
+      };
+      const response = await fetch(`${localCollectorUrl.replace(/\/$/, "")}${endpoint}`, {
+        method: "POST", headers: { "Content-Type": "application/json", "X-Promozap-Local-Token": collectorToken }, body: JSON.stringify(payload),
+      });
+      const data = await response.json() as { ok?: boolean; products?: AffiliateHubOffer[]; capturedAt?: string; error?: string };
+      if (!response.ok || !data.ok) throw new Error(data.error || "O coletor não conseguiu concluir esta operação.");
+      const products = (data.products || []).filter((offer) => {
+        const discount = offer.discountPercentage || 0;
+        const rating = offer.rating || 0;
+        return discount >= monitor.minDiscount && rating >= monitor.minRating && (!monitor.ignoreInternational || !offer.isInternational);
+      });
+      setMonitorRuntimes((current) => ({ ...current, [monitorId]: { offers: products, loading: false, error: "", lastScan: data.capturedAt || new Date().toISOString(), selectedSource: selectedSource.url } }));
+      setLocalCollectorConnected(true);
+      if (!products.length) toast.info(`${monitor.name}: nenhum produto passou por todos os filtros.`);
+
+      if (sendAutomatically) {
+        if (!whatsapp.instanceToken.trim()) throw new Error("Configure o token da UAZAPI antes de ativar o envio automático.");
+        const sent = monitorCooldowns(monitorId);
+        const selected = products.find((offer) => !sent[offer.itemId || offer.id || offer.url || ""]);
+        if (!selected?.url) return;
+        const prepared = await generatePromotionPreview(selected.url, { silent: true });
+        if (!prepared) throw new Error("A oferta passou pelos filtros, mas a mensagem não pôde ser preparada.");
+        if (!isMercadoLivreShortAffiliateUrl(prepared.item.url)) throw new Error("O Mercado Livre não devolveu o link curto meli.la. Nada foi enviado.");
+        const reviewCards = carouselEnabled ? (prepared.item.reviews || []).flatMap((review) => {
+          const firstMedia = review.media?.[0] || (review.videos?.[0] ? { type: "video" as const, url: review.videos[0] } : null) || (review.images?.[0] ? { type: "image" as const, url: review.images[0] } : null);
+          if (!firstMedia) return [];
+          return [{ text: review.text || "Avaliação publicada com mídia.", imageUrl: firstMedia.type === "image" ? firstMedia.url : undefined, videoUrl: firstMedia.type === "video" ? firstMedia.url : undefined }];
+        }).slice(0, 4) : [];
+        const sendResponse = await fetch("/api/offers/send", {
+          method: "POST", headers: { "Content-Type": "application/json", "X-Promozap-Admin-Token": whatsapp.instanceToken.trim() },
+          body: JSON.stringify({ destinationJid: monitor.destinationJid, text: prepared.message, imageUrl: prepared.item.imageUrl, includeImage: Boolean(prepared.item.imageUrl), reviewCards, carouselEnabled, carouselButtonLabel: carouselButtonLabel.trim() || "VER OFERTA", productUrl: prepared.item.url, productId: prepared.item.itemId || prepared.item.id, productTitle: prepared.item.title, monitorId }),
+        });
+        const sendResult = await sendResponse.json() as { error?: string };
+        if (!sendResponse.ok) throw new Error(sendResult.error || "A UAZAPI recusou o envio automático.");
+        const key = selected.itemId || selected.id || selected.url;
+        window.localStorage.setItem(`promozap.monitor.sent.${monitorId}`, JSON.stringify({ ...sent, [key]: new Date().toISOString() }));
+        if (prepared.record.id) await fetch("/api/products", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: prepared.record.id, status: "sent", destinationGroup: monitor.destinationJid }) }).catch(() => undefined);
+        toast.success(`${monitor.name}: oferta enviada para o grupo configurado.`);
+        void loadSendHistory();
+      }
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Falha na operação.";
+      setMonitorRuntimes((current) => ({ ...current, [monitorId]: { ...(current[monitorId] || { offers: [], lastScan: null }), loading: false, error: message } }));
+      setLocalCollectorConnected(false);
+    } finally { offerMonitorRunning.current.delete(monitorId); }
   }
 
   function openMonitoredDeal(item: MonitoredDeal) {
@@ -1670,7 +1868,7 @@ export default function Dashboard() {
       const response = await fetch("/api/offers/send", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Promozap-Admin-Token": whatsapp.instanceToken.trim() },
-        body: JSON.stringify({ destinationJid: offerDestination, text: offerMessage, imageUrl: selectedCatalogItem.imageUrl, includeImage: offerIncludeImage, reviewCards, carouselEnabled, carouselButtonLabel: carouselButtonLabel.trim() || "VER OFERTA", productUrl: selectedCatalogItem.url, productId: selectedCatalogItem.itemId || selectedCatalogItem.id }),
+        body: JSON.stringify({ destinationJid: offerDestination, text: offerMessage, imageUrl: selectedCatalogItem.imageUrl, includeImage: offerIncludeImage, reviewCards, carouselEnabled, carouselButtonLabel: carouselButtonLabel.trim() || "VER OFERTA", productUrl: selectedCatalogItem.url, productId: selectedCatalogItem.itemId || selectedCatalogItem.id, productTitle: selectedCatalogItem.title }),
       });
       const result = await response.json() as { error?: string; destination?: string };
       if (!response.ok) throw new Error(result.error || "Não foi possível enviar a oferta.");
@@ -1717,6 +1915,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (activeTab === "products" || activeTab === "catalog") void loadProducts();
+    if (activeTab === "products") void loadSendHistory();
   }, [activeTab, productStatus]);
 
   useEffect(() => {
@@ -1752,6 +1951,15 @@ export default function Dashboard() {
     const timer = window.setInterval(() => void scanAffiliateHub(true), Math.max(1, Number(affiliateHubInterval) || 5) * 60_000);
     return () => window.clearInterval(timer);
   }, [affiliateHubAutoSend, affiliateHubInterval, affiliateHubDestination, localCollectorUrl, localCollectorToken, whatsapp.instanceToken, carouselEnabled, carouselButtonLabel]);
+
+  useEffect(() => {
+    const active = offerMonitors.filter((monitor) => monitor.autoSend);
+    const timers = active.map((monitor) => {
+      void scanOfferMonitor(monitor.id, true);
+      return window.setInterval(() => void scanOfferMonitor(monitor.id, true), Math.max(1, monitor.intervalMinutes) * 60_000);
+    });
+    return () => timers.forEach((timer) => window.clearInterval(timer));
+  }, [offerMonitors, localCollectorUrl, localCollectorToken, whatsapp.instanceToken, carouselEnabled, carouselButtonLabel]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1827,6 +2035,8 @@ export default function Dashboard() {
     credentials: ["Credenciais", "Centralize as integrações da UAZAPI, afiliados, APIs e coletor local."],
     logs: ["Logs", "Acompanhe os eventos e diagnósticos da operação."],
   }[activeTab] || ["Painel Promozap", "Operação de grupos de ofertas."];
+  const activeOfferMonitor = offerMonitors.find((monitor) => monitor.id === activeOfferMonitorId) || offerMonitors[0];
+  const activeMonitorRuntime = activeOfferMonitor ? monitorRuntimes[activeOfferMonitor.id] || { offers: [], loading: false, error: "", lastScan: null } : { offers: [], loading: false, error: "", lastScan: null };
 
   return (
     <main className="promozap-light min-h-screen bg-background text-foreground">
@@ -1993,28 +2203,25 @@ export default function Dashboard() {
 
                 <Card className="overflow-hidden border-[#26372d] bg-[#09100c] shadow-none">
                   <CardHeader className="border-b border-[#213028]">
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                      <div><CardTitle className="flex items-center gap-2 text-xl"><Radar className="size-5 text-[#30dd6b]" /> Radar do Hub de Afiliados</CardTitle><CardDescription className="mt-2 max-w-3xl">Abre o Hub no Chrome do coletor, rola a página até carregar as recomendações e organiza as ofertas por desconto, comissão e procura. Cada produto enviado entra em cooldown por 24 horas.</CardDescription></div>
-                      <Badge className={affiliateHubAutoSend ? "bg-[#183524] text-[#77eda0]" : "bg-[#1a241e] text-[#9cad9f]"}>{affiliateHubAutoSend ? "● Envio automático ativo" : "○ Somente pesquisa"}</Badge>
-                    </div>
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><CardTitle className="flex items-center gap-2 text-xl"><Radar className="size-5 text-[#30dd6b]" /> Operações de monitoramento</CardTitle><CardDescription className="mt-2 max-w-3xl">Cada operação pesquisa suas próprias fontes, aplica seus filtros e envia somente para o grupo escolhido. Produtos enviados entram em cooldown por 24 horas dentro daquela operação.</CardDescription></div><Button type="button" onClick={addOfferMonitor} variant="outline" className="border-[#35483d] bg-[#111813] text-white"><Plus /> Novo nicho</Button></div>
                   </CardHeader>
                   <CardContent className="space-y-5 pt-5">
-                    <div className="grid gap-3 lg:grid-cols-[minmax(220px,1fr)_180px_220px_auto]">
-                      <label className="space-y-2 text-sm font-bold">Grupo das ofertas<NativeSelect value={affiliateHubDestination} onChange={(event) => setAffiliateHubDestination(event.target.value)} className="h-11 w-full border-[#35483d] bg-[#050806]"><NativeSelectOption value="">Escolher grupo</NativeSelectOption>{destinationGroups.map((group) => <NativeSelectOption key={group.JID} value={group.JID}>{group.Name}</NativeSelectOption>)}</NativeSelect></label>
-                      <label className="space-y-2 text-sm font-bold">Enviar a cada<NativeSelect value={affiliateHubInterval} onChange={(event) => setAffiliateHubInterval(event.target.value)} className="h-11 w-full border-[#35483d] bg-[#050806]"><NativeSelectOption value="5">5 minutos</NativeSelectOption><NativeSelectOption value="10">10 minutos</NativeSelectOption><NativeSelectOption value="15">15 minutos</NativeSelectOption><NativeSelectOption value="30">30 minutos</NativeSelectOption><NativeSelectOption value="60">1 hora</NativeSelectOption></NativeSelect></label>
-                      <div className="flex items-center justify-between self-end rounded-xl border border-[#35483d] bg-[#050806] px-4 py-3"><div><p className="text-sm font-bold">Enviar automático</p><p className="mt-1 text-xs text-[#829389]">Uma oferta elegível por ciclo</p></div><Switch checked={affiliateHubAutoSend} onCheckedChange={(checked) => { if (checked && !affiliateHubDestination) return toast.error("Escolha primeiro o grupo das ofertas."); setAffiliateHubAutoSend(checked); }} /></div>
-                      <Button onClick={() => void scanAffiliateHub(false)} disabled={affiliateHubLoading} className="h-11 self-end rounded-xl bg-[#30dd6b] font-black text-[#04140a] hover:bg-[#55ec82]">{affiliateHubLoading ? <LoaderCircle className="animate-spin" /> : <Search />} {affiliateHubLoading ? "Lendo o Hub..." : "Pesquisar agora"}</Button>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3 text-xs text-[#829389]"><span>Fonte: mercadolivre.com.br/afiliados/hub</span><span>•</span><span>{affiliateHubOffers.length ? `${affiliateHubOffers.length} ofertas encontradas · ${Math.min(affiliateHubVisibleCount, affiliateHubOffers.length)} exibidas` : "Aguardando pesquisa"}</span><span>•</span><span>Atualização automática: {affiliateHubInterval} min</span><span>•</span><span>Repetição bloqueada por 24h</span>{affiliateHubLastScan ? <><span>•</span><span>Última leitura: {new Date(affiliateHubLastScan).toLocaleString("pt-BR")}</span></> : null}</div>
-                    {affiliateHubError ? <div className="flex items-start gap-3 rounded-xl border border-[#d69e35] bg-[#2a210d] p-3 text-sm leading-6 text-[#f4d277]"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{affiliateHubError}</span></div> : null}
-                    {affiliateHubOffers.length ? <><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{affiliateHubOffers.slice(0, affiliateHubVisibleCount).map((offer) => {
-                      const cooldownKey = offer.itemId || offer.id || offer.url || "";
-                      const sentAt = affiliateHubCooldowns()[cooldownKey];
-                      return <div key={`${cooldownKey}-${affiliateHubSentRevision}`} className="overflow-hidden rounded-2xl border border-[#26372d] bg-[#050806]">
-                        <div className="aspect-[4/3] bg-white p-3">{offer.imageUrl ? <img src={offer.imageUrl} alt={offer.title} loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-contain" /> : <div className="grid h-full place-items-center text-[#708078]"><ShoppingBag className="size-10" /></div>}</div>
-                        <div className="space-y-3 p-4"><div className="flex flex-wrap gap-1.5">{offer.isNew ? <Badge className="bg-[#30dd6b] text-[#04140a]">NOVA</Badge> : null}{offer.discountPercentage ? <Badge className="bg-[#ffe04b] text-[#251f00]">-{offer.discountPercentage}%</Badge> : null}{offer.affiliateEarningsPercentage ? <Badge className="bg-[#173a28] text-[#8df3aa]">Ganhos {offer.affiliateEarningsPercentage}%</Badge> : null}{offer.coupon ? <Badge className="bg-[#3a2154] text-[#dcb6ff]">Cupom</Badge> : null}</div><h3 className="line-clamp-3 min-h-[3.75rem] text-sm font-bold leading-5">{offer.title}</h3><div>{offer.originalPrice && offer.originalPrice > (offer.price || 0) ? <p className="text-xs text-[#829389] line-through">{formatMoney(offer.originalPrice)}</p> : null}<p className="text-xl font-black text-[#62ef8b]">{formatMoney(offer.price)}</p></div><p className="line-clamp-2 text-xs text-[#829389]">{[offer.badge, offer.soldText, offer.rating ? `Nota ${offer.rating}` : null].filter(Boolean).join(" · ") || "Recomendação do Hub"}</p>{sentAt ? <p className="rounded-lg bg-[#251f12] px-2 py-1.5 text-xs font-bold text-[#f1d478]">Cooldown até {new Date(Date.parse(sentAt) + 86400000).toLocaleString("pt-BR")}</p> : null}<Button onClick={() => void generatePromotionPreview(offer.url || "")} disabled={!offer.url || promotionLoading} className="h-9 w-full bg-[#18231c] text-[#8df3aa] hover:bg-[#223328]"><Sparkles /> Preparar oferta</Button></div>
-                      </div>;
-                    })}</div>{affiliateHubVisibleCount < affiliateHubOffers.length ? <div className="grid gap-2 sm:grid-cols-2"><Button type="button" onClick={() => setAffiliateHubVisibleCount((count) => Math.min(count + 48, affiliateHubOffers.length))} variant="outline" className="h-11 border-[#35483d] bg-[#101813] text-[#b7c7bc] hover:bg-[#18231c] hover:text-white">Mostrar mais 48 ({affiliateHubOffers.length - affiliateHubVisibleCount} restantes)</Button><Button type="button" onClick={() => setAffiliateHubVisibleCount(affiliateHubOffers.length)} className="h-11 bg-[#30dd6b] font-black text-[#04140a] hover:bg-[#55ec82]">Mostrar todas as {affiliateHubOffers.length}</Button></div> : <p className="text-center text-xs font-semibold text-[#829389]">Todas as {affiliateHubOffers.length} ofertas encontradas estão sendo exibidas.</p>}</> : <div className="rounded-2xl border border-dashed border-[#34483c] px-6 py-8 text-center"><Radar className="mx-auto mb-2 size-8 text-[#4e6958]" /><p className="font-bold">Nenhuma leitura feita ainda</p><p className="mt-1 text-sm text-[#829389]">Clique em “Pesquisar agora”. Na primeira vez, entre no Mercado Livre na janela aberta pelo coletor.</p></div>}
+                    <div className="flex gap-2 overflow-x-auto pb-1">{offerMonitors.map((monitor) => <button key={monitor.id} type="button" onClick={() => setActiveOfferMonitorId(monitor.id)} className={`min-w-52 rounded-xl border p-3 text-left ${monitor.id === activeOfferMonitor?.id ? "border-[#30dd6b] bg-[#102619]" : "border-[#35483d] bg-[#050806]"}`}><span className="block truncate text-sm font-black">{monitor.name}</span><span className="mt-1 block text-xs text-[#829389]">{monitor.autoSend ? "● Automático" : "○ Manual"} · {monitor.kind === "hub" ? "Hub" : `${monitor.sources.length} fonte(s)`}</span></button>)}</div>
+                    {activeOfferMonitor ? <>
+                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                        <label className="space-y-2 text-sm font-bold">Nome da operação<Input value={activeOfferMonitor.name} onChange={(event) => updateOfferMonitor(activeOfferMonitor.id, { name: event.target.value })} className="h-11 border-[#35483d] bg-[#050806]" /></label>
+                        <label className="space-y-2 text-sm font-bold">Grupo exclusivo<NativeSelect value={activeOfferMonitor.destinationJid} onChange={(event) => updateOfferMonitor(activeOfferMonitor.id, { destinationJid: event.target.value })} className="h-11 border-[#35483d] bg-[#050806]"><NativeSelectOption value="">Escolher grupo</NativeSelectOption>{destinationGroups.map((group) => <NativeSelectOption key={group.JID} value={group.JID}>{group.Name}</NativeSelectOption>)}</NativeSelect></label>
+                        <label className="space-y-2 text-sm font-bold">Intervalo<NativeSelect value={String(activeOfferMonitor.intervalMinutes)} onChange={(event) => updateOfferMonitor(activeOfferMonitor.id, { intervalMinutes: Number(event.target.value) })} className="h-11 border-[#35483d] bg-[#050806]">{[5,10,15,30,60].map((value) => <NativeSelectOption key={value} value={String(value)}>{value < 60 ? `${value} minutos` : "1 hora"}</NativeSelectOption>)}</NativeSelect></label>
+                        <div className="flex items-center justify-between self-end rounded-xl border border-[#35483d] bg-[#050806] px-4 py-3"><div><p className="text-sm font-bold">Enviar automático</p><p className="mt-1 text-xs text-[#829389]">Uma oferta por ciclo</p></div><Switch checked={activeOfferMonitor.autoSend} onCheckedChange={(checked) => { if (checked && !activeOfferMonitor.destinationJid) return toast.error("Escolha primeiro o grupo desta operação."); updateOfferMonitor(activeOfferMonitor.id, { autoSend: checked }); }} /></div>
+                      </div>
+                      {activeOfferMonitor.kind === "urls" ? <>
+                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4"><label className="space-y-2 text-sm font-bold">Avaliação mínima<Input type="number" min="0" max="5" step="0.1" value={activeOfferMonitor.minRating} onChange={(event) => updateOfferMonitor(activeOfferMonitor.id, { minRating: Math.min(5, Math.max(0, Number(event.target.value))) })} className="h-11 border-[#35483d] bg-[#050806]" /></label><label className="space-y-2 text-sm font-bold">Desconto mínimo (%)<Input type="number" min="0" max="95" value={activeOfferMonitor.minDiscount} onChange={(event) => updateOfferMonitor(activeOfferMonitor.id, { minDiscount: Math.min(95, Math.max(0, Number(event.target.value))) })} className="h-11 border-[#35483d] bg-[#050806]" /></label><label className="space-y-2 text-sm font-bold">Páginas por pesquisa<Input type="number" min="1" max="50" value={activeOfferMonitor.maxPages} onChange={(event) => updateOfferMonitor(activeOfferMonitor.id, { maxPages: Math.min(50, Math.max(1, Number(event.target.value))) })} className="h-11 border-[#35483d] bg-[#050806]" /></label><div className="flex items-center justify-between self-end rounded-xl border border-[#35483d] bg-[#050806] px-4 py-3"><div><p className="text-sm font-bold">Ignorar internacional</p><p className="mt-1 text-xs text-[#829389]">Descarta o cartão antes do ranking</p></div><Switch checked={activeOfferMonitor.ignoreInternational} onCheckedChange={(checked) => updateOfferMonitor(activeOfferMonitor.id, { ignoreInternational: checked })} /></div></div>
+                        <div className="space-y-2"><div className="flex items-center justify-between"><p className="text-sm font-black">URLs e chance de escolha</p><Button type="button" size="sm" variant="outline" onClick={() => updateOfferMonitor(activeOfferMonitor.id, { sources: [...activeOfferMonitor.sources, { id: crypto.randomUUID(), url: "", weight: 10 }] })} className="border-[#35483d] bg-[#111813] text-white"><Plus /> URL</Button></div>{activeOfferMonitor.sources.map((source) => <div key={source.id} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_120px_42px]"><Input value={source.url} onChange={(event) => updateMonitorSource(activeOfferMonitor.id, source.id, { url: event.target.value })} placeholder="https://lista.mercadolivre.com.br/..." className="h-11 border-[#35483d] bg-[#050806]" /><div className="relative"><Input type="number" min="0" max="100" value={source.weight} onChange={(event) => updateMonitorSource(activeOfferMonitor.id, source.id, { weight: Math.min(100, Math.max(0, Number(event.target.value))) })} className="h-11 border-[#35483d] bg-[#050806] pr-8" /><span className="absolute right-3 top-3 text-xs text-[#829389]">%</span></div><Button type="button" variant="outline" onClick={() => updateOfferMonitor(activeOfferMonitor.id, { sources: activeOfferMonitor.sources.filter((item) => item.id !== source.id) })} disabled={activeOfferMonitor.sources.length === 1} className="h-11 border-[#543b3b] bg-[#1b1010] text-[#ffaaa2]"><X /></Button></div>)}</div>
+                      </> : <div className="rounded-xl border border-[#31543b] bg-[#0b1710] p-4 text-sm text-[#9eeab3]">A operação geral continua lendo todas as recomendações carregadas no Hub de Afiliados. Para nichos, use operações por URLs com filtros próprios.</div>}
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div className="text-xs leading-5 text-[#829389]"><p>{activeMonitorRuntime.offers.length} oferta(s) aprovadas pelos filtros · cooldown de 24 horas</p>{activeMonitorRuntime.selectedSource ? <p className="max-w-3xl truncate">Fonte sorteada: {activeMonitorRuntime.selectedSource}</p> : null}{activeMonitorRuntime.lastScan ? <p>Última leitura: {new Date(activeMonitorRuntime.lastScan).toLocaleString("pt-BR")}</p> : null}</div><div className="flex gap-2"><Button type="button" onClick={() => removeOfferMonitor(activeOfferMonitor.id)} disabled={activeOfferMonitor.id === "geral-hub"} variant="outline" className="border-[#543b3b] bg-[#1b1010] text-[#ffaaa2]">Remover</Button><Button onClick={() => void scanOfferMonitor(activeOfferMonitor.id, false)} disabled={activeMonitorRuntime.loading} className="bg-[#30dd6b] font-black text-[#04140a] hover:bg-[#55ec82]">{activeMonitorRuntime.loading ? <LoaderCircle className="animate-spin" /> : <Search />} {activeMonitorRuntime.loading ? "Pesquisando..." : "Pesquisar agora"}</Button></div></div>
+                      {activeMonitorRuntime.error ? <div className="flex items-start gap-3 rounded-xl border border-[#d69e35] bg-[#2a210d] p-3 text-sm leading-6 text-[#f4d277]"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{activeMonitorRuntime.error}</span></div> : null}
+                      {activeMonitorRuntime.offers.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{activeMonitorRuntime.offers.slice(0, 80).map((offer) => { const key = offer.itemId || offer.id || offer.url || ""; const sentAt = monitorCooldowns(activeOfferMonitor.id)[key]; return <div key={key} className="overflow-hidden rounded-2xl border border-[#26372d] bg-[#050806]"><div className="aspect-[4/3] bg-white p-3">{offer.imageUrl ? <img src={offer.imageUrl} alt={offer.title} loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-contain" /> : <div className="grid h-full place-items-center text-[#708078]"><ShoppingBag className="size-10" /></div>}</div><div className="space-y-3 p-4"><div className="flex flex-wrap gap-1.5"><Badge className="bg-[#ffe04b] text-[#251f00]">-{offer.discountPercentage || 0}%</Badge>{offer.rating ? <Badge className="bg-[#173a28] text-[#8df3aa]">★ {offer.rating}</Badge> : null}{offer.coupon ? <Badge className="bg-[#3a2154] text-[#dcb6ff]">Cupom</Badge> : null}</div><h3 className="line-clamp-3 min-h-[3.75rem] text-sm font-bold leading-5">{offer.title}</h3><div>{offer.originalPrice ? <p className="text-xs text-[#829389] line-through">{formatMoney(offer.originalPrice)}</p> : null}<p className="text-xl font-black text-[#62ef8b]">{formatMoney(offer.price)}</p></div><p className="text-xs text-[#829389]">{[offer.soldText, offer.rating ? `Nota ${offer.rating}` : null].filter(Boolean).join(" · ")}</p>{sentAt ? <p className="rounded-lg bg-[#251f12] px-2 py-1.5 text-xs font-bold text-[#f1d478]">Cooldown até {new Date(Date.parse(sentAt) + 86400000).toLocaleString("pt-BR")}</p> : null}<Button onClick={() => void generatePromotionPreview(offer.url || "")} disabled={!offer.url || promotionLoading} className="h-9 w-full bg-[#18231c] text-[#8df3aa] hover:bg-[#223328]"><Sparkles /> Preparar oferta</Button></div></div>; })}</div> : <div className="rounded-2xl border border-dashed border-[#34483c] px-6 py-8 text-center"><Radar className="mx-auto mb-2 size-8 text-[#4e6958]" /><p className="font-bold">Nenhuma oferta aprovada ainda</p><p className="mt-1 text-sm text-[#829389]">A pesquisa só mostra produtos que passam por todos os filtros desta operação.</p></div>}
+                    </> : null}
                   </CardContent>
                 </Card>
 
@@ -2083,7 +2290,7 @@ export default function Dashboard() {
               <div className="min-w-0 space-y-4">
                   <Card className="border-[#27322b] bg-[#0b100d] shadow-none">
                     <CardContent className="grid gap-3 p-4 sm:grid-cols-[minmax(0,1fr)_210px_auto]">
-                      <div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#718079]" /><Input value={productSearch} onChange={(event) => setProductSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void loadProducts(); }} placeholder="Buscar produto, código ou link" className="h-11 rounded-xl border-[#34423a] bg-[#080c09] pl-10" /></div>
+                      <div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#718079]" /><Input value={productSearch} onChange={(event) => setProductSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { void loadProducts(); void loadSendHistory(); } }} placeholder="Buscar produto, código ou grupo" className="h-11 rounded-xl border-[#34423a] bg-[#080c09] pl-10" /></div>
                       <NativeSelect value={productStatus} onChange={(event) => setProductStatus(event.target.value)} className="h-11 w-full rounded-xl border-[#34423a] bg-[#080c09]">
                         <NativeSelectOption value="all">Todos os status</NativeSelectOption>
                         <NativeSelectOption value="converted">Convertidos</NativeSelectOption>
@@ -2092,7 +2299,15 @@ export default function Dashboard() {
                         <NativeSelectOption value="unsupported">Não reconhecidos</NativeSelectOption>
                         <NativeSelectOption value="error">Com erro</NativeSelectOption>
                       </NativeSelect>
-                      <Button onClick={() => void loadProducts()} variant="outline" className="h-11 rounded-xl border-[#34423a] bg-[#111813] text-white hover:bg-[#19231c]"><RefreshCw className={productsLoading ? "animate-spin" : ""} /> Atualizar</Button>
+                      <Button onClick={() => { void loadProducts(); void loadSendHistory(); }} variant="outline" className="h-11 rounded-xl border-[#34423a] bg-[#111813] text-white hover:bg-[#19231c]"><RefreshCw className={productsLoading || sendHistoryLoading ? "animate-spin" : ""} /> Atualizar</Button>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="overflow-hidden border-[#27322b] bg-[#0b100d] shadow-none">
+                    <CardHeader className="border-b border-[#27322b]"><CardTitle className="flex items-center gap-2 text-lg"><Send className="size-5 text-[#62ef8b]" /> Histórico real de envios</CardTitle><CardDescription>Cada disparo é registrado. A contagem usa o ID do produto, mesmo quando ele é enviado novamente ou para grupos diferentes.</CardDescription></CardHeader>
+                    <CardContent className="space-y-4 pt-4">
+                      {sendSummary.length ? <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">{sendSummary.slice(0, 12).map((row) => <div key={row.productId} className="rounded-xl border border-[#27372e] bg-[#07110b] p-3"><p className="line-clamp-2 min-h-10 text-sm font-bold">{row.productTitle || row.productId}</p><p className="mt-2 text-xs text-[#829389]">{row.productId}</p><div className="mt-3 flex items-end justify-between"><span className="text-2xl font-black text-[#62ef8b]">{row.sendCount}x</span><span className="text-right text-xs text-[#9cad9f]">{row.groupCount} grupo(s)<br />{new Date(row.lastSentAt).toLocaleString("pt-BR")}</span></div></div>)}</div> : <p className="rounded-xl border border-dashed border-[#34483c] p-5 text-center text-sm text-[#829389]">Os próximos envios aparecerão aqui com a contagem por produto.</p>}
+                      {sendHistory.length ? <div className="max-h-80 overflow-auto rounded-xl border border-[#27372e]"><table className="w-full min-w-[760px] text-left text-xs"><thead className="sticky top-0 bg-[#111a14] text-[#9cad9f]"><tr><th className="p-3">Produto</th><th className="p-3">Grupo</th><th className="p-3">Origem</th><th className="p-3">Enviado em</th></tr></thead><tbody>{sendHistory.map((row) => <tr key={row.id} className="border-t border-[#223028]"><td className="p-3"><p className="max-w-sm truncate font-bold text-white">{row.productTitle || row.productId}</p><p className="mt-1 text-[#718079]">{row.productId}</p></td><td className="p-3">{row.destinationName || row.destinationJid}</td><td className="p-3">{row.monitorId ? `Monitor: ${offerMonitors.find((item) => item.id === row.monitorId)?.name || row.monitorId}` : "Envio manual"}</td><td className="p-3">{new Date(row.sentAt).toLocaleString("pt-BR")}</td></tr>)}</tbody></table></div> : null}
                     </CardContent>
                   </Card>
 
