@@ -286,8 +286,14 @@ const extractor = String.raw`(() => {
   const couponAppliesToSingleItem = !minimumPurchase || (standardPrice && standardPrice >= minimumPurchase);
   const couponPrice = explicitCouponPrice || (amountOff && standardPrice && couponAppliesToSingleItem ? Math.max(0, standardPrice - amountOff) : null);
   const couponCode = pageText.match(/(?:cupom|código)\s*[:\-]?\s*([A-Z0-9]{4,20})/i)?.[1] || null;
-  const discountText = text('.andes-money-amount__discount') || priceContainer?.textContent?.match(/\d+%\s*OFF/i)?.[0] || null;
-  const discountPercentage = number(discountText);
+  // Algumas páginas reutilizam a classe de desconto em textos como
+  // "+1000 vendidos". Só aceite o campo quando houver, de fato, "% OFF".
+  const discountCandidate = text('.andes-money-amount__discount');
+  const discountText = discountCandidate?.match(/\d{1,2}(?:[.,]\d+)?\s*%\s*OFF/i)?.[0]
+    || priceContainer?.textContent?.match(/\d{1,2}(?:[.,]\d+)?\s*%\s*OFF/i)?.[0]
+    || null;
+  const parsedDiscount = number(discountText);
+  const discountPercentage = parsedDiscount > 0 && parsedDiscount < 100 ? parsedDiscount : 0;
   if (!originalPrice && standardPrice && discountPercentage > 0 && discountPercentage < 90) {
     originalPrice = Math.round((standardPrice / (1 - discountPercentage / 100)) * 100) / 100;
   }

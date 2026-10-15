@@ -236,6 +236,7 @@ type MonitorActivity = {
 type SendSummary = { productId: string; productTitle?: string | null; sendCount: number; groupCount: number; lastSentAt: string };
 type SendHistoryRow = { id: string; productId: string; productTitle?: string | null; destinationJid: string; destinationName?: string | null; monitorId?: string | null; sendMode: string; sentAt: string };
 type CatalogedProduct = CatalogItem & { category: string; productCode?: string | null; currentPrice?: number | null; previousPrice?: number | null; productUrl?: string; rating?: number | null; firstSeenAt?: string; lastSeenAt?: string };
+type CatalogedStats = { total: number; categoryCount: number; withPrice: number; withDiscount: number; withFreeShipping: number; historyPoints: number };
 
 const defaultOfferMonitors: OfferMonitor[] = [
   {
@@ -640,6 +641,7 @@ export default function Dashboard() {
   const [sendHistoryLoading, setSendHistoryLoading] = useState(false);
   const [catalogedProducts, setCatalogedProducts] = useState<CatalogedProduct[]>([]);
   const [catalogedCategories, setCatalogedCategories] = useState<Array<{ category: string; total: number }>>([]);
+  const [catalogedStats, setCatalogedStats] = useState<CatalogedStats>({ total: 0, categoryCount: 0, withPrice: 0, withDiscount: 0, withFreeShipping: 0, historyPoints: 0 });
   const [catalogedSearch, setCatalogedSearch] = useState("");
   const [catalogedCategory, setCatalogedCategory] = useState("Todas");
   const [catalogedLoading, setCatalogedLoading] = useState(false);
@@ -1134,6 +1136,14 @@ export default function Dashboard() {
     if (product.standardPrice != null) attributes.unshift({ name: "Preço normal", value_name: formatMoney(product.standardPrice, product.currency || "BRL") });
     if (product.pixPrice != null) attributes.unshift({ name: "Preço no Pix", value_name: formatMoney(product.pixPrice, product.currency || "BRL") });
     if (product.coupon?.price != null) attributes.unshift({ name: "Preço com cupom", value_name: formatMoney(product.coupon.price, product.currency || "BRL") });
+    const currentPrice = product.pixPrice ?? product.price ?? product.standardPrice;
+    const calculatedDiscount = currentPrice != null && product.originalPrice != null && product.originalPrice > currentPrice
+      ? Math.round((1 - currentPrice / product.originalPrice) * 100)
+      : 0;
+    const claimedDiscount = Number(product.discountPercentage) || 0;
+    const safeDiscount = calculatedDiscount > 0 && calculatedDiscount < 100
+      ? calculatedDiscount
+      : claimedDiscount > 0 && claimedDiscount <= 90 && /%\s*OFF/i.test(product.discountText || "") ? claimedDiscount : 0;
     return {
       id: product.itemId || product.userProductId || crypto.randomUUID(),
       itemId: product.itemId,
@@ -1141,7 +1151,7 @@ export default function Dashboard() {
       title: product.title || "Produto do Mercado Livre",
       imageUrl: product.imageUrl,
       url: product.canonicalUrl || product.url,
-      price: product.pixPrice ?? product.price ?? product.standardPrice,
+      price: currentPrice,
       originalPrice: product.originalPrice,
       currency: product.currency || "BRL",
       brand: product.brand,
@@ -1152,7 +1162,7 @@ export default function Dashboard() {
       freeShipping: product.freeShipping,
       seller: product.seller,
       officialStore: product.officialStore,
-      discountPercentage: product.discountPercentage || 0,
+      discountPercentage: safeDiscount,
       installments: product.installments,
       attributes,
       pictures: (product.images || []).map((url) => ({ url })),
@@ -1842,10 +1852,18 @@ export default function Dashboard() {
       if (catalogedSearch.trim()) params.set("search", catalogedSearch.trim());
       if (catalogedCategory !== "Todas") params.set("category", catalogedCategory);
       const response = await fetch(`/api/catalog/products?${params.toString()}`, { cache: "no-store" });
-      const data = await response.json() as { products?: CatalogedProduct[]; categories?: Array<{ category: string; total: number }>; error?: string };
+      const data = await response.json() as { products?: CatalogedProduct[]; categories?: Array<{ category: string; total: number }>; stats?: Partial<CatalogedStats>; error?: string };
       if (!response.ok) throw new Error(data.error || "Não foi possível carregar o catálogo.");
       setCatalogedProducts((data.products || []).map((item) => ({ ...item, price: item.currentPrice ?? item.price })));
       setCatalogedCategories(data.categories || []);
+      setCatalogedStats({
+        total: Number(data.stats?.total) || 0,
+        categoryCount: Number(data.stats?.categoryCount) || 0,
+        withPrice: Number(data.stats?.withPrice) || 0,
+        withDiscount: Number(data.stats?.withDiscount) || 0,
+        withFreeShipping: Number(data.stats?.withFreeShipping) || 0,
+        historyPoints: Number(data.stats?.historyPoints) || 0,
+      });
     } catch (caught) {
       toast.error(caught instanceof Error ? caught.message : "Não foi possível carregar o catálogo.");
     } finally { setCatalogedLoading(false); }
@@ -2788,6 +2806,16 @@ export default function Dashboard() {
               <div className="space-y-5 rounded-3xl bg-[#f4f6f8] p-4 text-[#243447] sm:p-6">
                 <section className="rounded-2xl border border-[#dfe5eb] bg-white p-5 shadow-[0_8px_30px_rgba(31,54,76,.08)] sm:p-6">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"><div><div className="mb-2 flex items-center gap-2 text-sm font-extrabold text-[#138244]"><ShoppingBag className="size-5" /> CATÁLOGO PERSISTENTE</div><h2 className="text-2xl font-black text-[#1b2b3a]">Produtos encontrados pelos monitoramentos</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-[#667788]">Cada leitura salva nome, imagem, categoria, preço, preço anterior, desconto, frete e avaliação. Novos preços alimentam o histórico do produto.</p></div><Button onClick={() => void loadCatalogedProducts()} disabled={catalogedLoading} className="bg-[#138244] font-extrabold text-white hover:bg-[#0f6f38]">{catalogedLoading ? <LoaderCircle className="animate-spin" /> : <RefreshCw />} Atualizar catálogo</Button></div>
+                  <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-6">
+                    {[
+                      ["Produtos", catalogedStats.total],
+                      ["Categorias", catalogedStats.categoryCount],
+                      ["Com preço", catalogedStats.withPrice],
+                      ["Com desconto", catalogedStats.withDiscount],
+                      ["Frete grátis", catalogedStats.withFreeShipping],
+                      ["Medições", catalogedStats.historyPoints],
+                    ].map(([label, value]) => <div key={label} className="rounded-xl border border-[#dfe6eb] bg-[#f8fafb] p-3"><p className="text-xs font-bold text-[#71808d]">{label}</p><p className="mt-1 text-2xl font-black text-[#173a28]">{Number(value).toLocaleString("pt-BR")}</p></div>)}
+                  </div>
                   <div className="mt-5 grid gap-3 md:grid-cols-[minmax(0,1fr)_260px]"><div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#82909a]" /><Input value={catalogedSearch} onChange={(event) => setCatalogedSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void loadCatalogedProducts(); }} placeholder="Buscar por nome ou código MLB" className="h-11 border-[#d8e0e6] bg-white pl-10 text-[#253545]" /></div><NativeSelect value={catalogedCategory} onChange={(event) => setCatalogedCategory(event.target.value)} className="h-11 border-[#d8e0e6] bg-white text-[#253545]"><NativeSelectOption value="Todas">Todas as categorias</NativeSelectOption>{catalogedCategories.map((item) => <NativeSelectOption key={item.category} value={item.category}>{item.category} ({Number(item.total)})</NativeSelectOption>)}</NativeSelect></div>
                 </section>
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{catalogedProducts.map((item) => <button key={item.id} type="button" onClick={() => void openCatalogedProduct(item)} className="group overflow-hidden rounded-2xl border border-[#dce3e8] bg-white text-left shadow-[0_6px_22px_rgba(31,54,76,.07)] transition hover:-translate-y-1 hover:border-[#8fc5aa] hover:shadow-[0_14px_32px_rgba(31,54,76,.14)]"><div className="relative aspect-[4/3] bg-white p-4">{item.imageUrl ? <img src={item.imageUrl} alt={item.title} loading="lazy" className="h-full w-full object-contain transition group-hover:scale-[1.025]" /> : <div className="grid h-full place-items-center"><ShoppingBag className="size-10 text-[#9ba8b3]" /></div>}<span className="absolute left-3 top-3 rounded-full bg-[#173a28] px-3 py-1 text-[11px] font-black text-[#8df3aa]">{item.category}</span></div><div className="space-y-3 border-t border-[#edf1f4] p-4"><h3 className="line-clamp-3 min-h-[3.75rem] text-sm font-bold leading-5 text-[#263746]">{item.title}</h3><div>{item.originalPrice && item.originalPrice > (item.currentPrice || 0) ? <p className="text-xs text-[#8b98a3] line-through">{formatMoney(item.originalPrice)}</p> : null}<p className="text-2xl font-black text-[#138244]">{formatMoney(item.currentPrice)}</p></div><div className="flex flex-wrap gap-1.5">{item.discountPercentage ? <Badge className="bg-[#ffe04b] text-[#251f00]">-{item.discountPercentage}%</Badge> : null}{item.rating ? <Badge className="bg-[#e8f2fb] text-[#17689f]">★ {item.rating}</Badge> : null}{item.freeShipping ? <Badge className="bg-[#e8f8ef] text-[#138244]">Frete grátis</Badge> : null}</div><p className="text-xs font-extrabold text-[#087bd3]">Ver dados, histórico e enviar →</p></div></button>)}</div>

@@ -37,7 +37,8 @@ export async function GET(request: Request) {
       const [product, history] = await Promise.all([
         env.DB.prepare(`SELECT id, store, category, product_code AS productCode, title, image_url AS imageUrl,
           product_url AS productUrl, current_price AS currentPrice, previous_price AS previousPrice,
-          original_price AS originalPrice, discount_percentage AS discountPercentage,
+          original_price AS originalPrice,
+          CASE WHEN discount_percentage BETWEEN 1 AND 90 THEN discount_percentage ELSE 0 END AS discountPercentage,
           free_shipping AS freeShipping, rating, sold_text AS soldText, payload_json AS payloadJson,
           first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt, updated_at AS updatedAt
           FROM catalog_products WHERE id = ?`).bind(id).first(),
@@ -53,16 +54,24 @@ export async function GET(request: Request) {
     if (search) { clauses.push("(title LIKE ? OR product_code LIKE ?)"); bindings.push(`%${search}%`, `%${search}%`); }
     if (category && category !== "Todas") { clauses.push("category = ?"); bindings.push(category); }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-    const [products, categories] = await Promise.all([
+    const [products, categories, stats] = await Promise.all([
       env.DB.prepare(`SELECT id, store, category, product_code AS productCode, title, image_url AS imageUrl,
         product_url AS productUrl, current_price AS currentPrice, previous_price AS previousPrice,
-        original_price AS originalPrice, discount_percentage AS discountPercentage,
+        original_price AS originalPrice,
+        CASE WHEN discount_percentage BETWEEN 1 AND 90 THEN discount_percentage ELSE 0 END AS discountPercentage,
         free_shipping AS freeShipping, rating, sold_text AS soldText,
         first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt, updated_at AS updatedAt
         FROM catalog_products ${where} ORDER BY last_seen_at DESC LIMIT 500`).bind(...bindings).all(),
       env.DB.prepare(`SELECT category, COUNT(*) AS total FROM catalog_products GROUP BY category ORDER BY category`).all(),
+      env.DB.prepare(`SELECT COUNT(*) AS total,
+        COUNT(DISTINCT category) AS categoryCount,
+        SUM(CASE WHEN current_price IS NOT NULL AND current_price > 0 THEN 1 ELSE 0 END) AS withPrice,
+        SUM(CASE WHEN discount_percentage BETWEEN 1 AND 90 THEN 1 ELSE 0 END) AS withDiscount,
+        SUM(CASE WHEN free_shipping = 1 THEN 1 ELSE 0 END) AS withFreeShipping,
+        (SELECT COUNT(*) FROM catalog_price_history) AS historyPoints
+        FROM catalog_products`).first(),
     ]);
-    return NextResponse.json({ products: products.results, categories: categories.results });
+    return NextResponse.json({ products: products.results, categories: categories.results, stats });
   } catch (error) {
     console.error("catalog.products.list", error);
     return NextResponse.json({ error: "Não foi possível carregar os produtos catalogados." }, { status: 500 });
@@ -94,7 +103,13 @@ export async function POST(request: Request) {
       const price = finite(value.effectivePrice ?? value.price);
       const originalPrice = finite(value.originalPrice);
       const imageUrl = clean(value.imageUrl, 4000) || null;
-      const discount = Math.max(0, Math.min(100, Math.round(Number(value.discountPercentage) || 0)));
+      const claimedDiscount = Number(value.discountPercentage) || 0;
+      const calculatedDiscount = price != null && originalPrice != null && originalPrice > price
+        ? Math.round((1 - price / originalPrice) * 100)
+        : 0;
+      const discount = calculatedDiscount > 0 && calculatedDiscount < 100
+        ? calculatedDiscount
+        : claimedDiscount > 0 && claimedDiscount <= 90 ? Math.round(claimedDiscount) : 0;
       const rating = finite(value.rating);
       const soldText = clean(value.soldText, 120) || null;
       const payload = JSON.stringify(value).slice(0, 60_000);
