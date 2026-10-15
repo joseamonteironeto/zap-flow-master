@@ -50,6 +50,13 @@
       "when": 1791950400000,
       "tag": "0006_offer_sends",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792022400000,
+      "tag": "0007_catalog_and_send_locks",
+      "breakpoints": true
     }
   ]
 }

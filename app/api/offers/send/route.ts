@@ -48,6 +48,7 @@ export async function POST(request: Request) {
     : [];
   const productUrl = trustedLink(clean(body.productUrl, 4000));
   const productId = clean(body.productId, 100);
+  const productKey = clean(body.productKey, 160) || productId || productUrl || "";
   const productTitle = clean(body.productTitle, 300);
   const monitorId = clean(body.monitorId, 100);
   const sendMode = monitorId ? "monitor" : "manual";
@@ -59,6 +60,26 @@ export async function POST(request: Request) {
   if (!destination) return NextResponse.json({ error: "O grupo escolhido não está configurado como destino ativo." }, { status: 422 });
   const serverUrl = (runtime.UAZAPI_SERVER_URL || "").replace(/\/$/, "");
   if (!serverUrl) return NextResponse.json({ error: "Servidor UAZAPI não configurado." }, { status: 503 });
+  let lockAcquired = false;
+  if (monitorId && productKey) {
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+    await env.DB.prepare("DELETE FROM offer_send_locks WHERE expires_at <= ?").bind(nowIso).run();
+    const last = await env.DB.prepare(`SELECT product_key AS productKey, product_id AS productId
+      FROM offer_sends WHERE monitor_id = ? ORDER BY sent_at DESC LIMIT 1`)
+      .bind(monitorId).first<{ productKey: string | null; productId: string | null }>();
+    if ((last?.productKey && last.productKey === productKey) || (!last?.productKey && last?.productId === productId)) {
+      return NextResponse.json({ error: "Este produto foi o último enviado por esta operação. Outro produto será escolhido." }, { status: 409 });
+    }
+    const lock = await env.DB.prepare(`INSERT OR IGNORE INTO offer_send_locks
+      (monitor_id, product_key, locked_at, expires_at) VALUES (?, ?, ?, ?)`)
+      .bind(monitorId, productKey, nowIso, expiresAt).run();
+    if (!lock.meta.changes) {
+      return NextResponse.json({ error: "Este produto já foi enviado nas últimas 24 horas. Outro produto será escolhido." }, { status: 409 });
+    }
+    lockAcquired = true;
+  }
   // O texto deve respeitar exatamente o modelo escolhido. O link continua
   // disponível para os botões, mas só aparece no corpo quando o modelo usa
   // {{link}} (já substituído pelo cliente antes desta chamada).
@@ -113,12 +134,15 @@ export async function POST(request: Request) {
     if (!response.ok) throw new Error(`UAZAPI respondeu HTTP ${response.status}: ${providerResponse.slice(0, 240)}`);
     const sentAt = new Date().toISOString();
     await env.DB.prepare(`INSERT INTO offer_sends
-      (id, product_id, product_title, product_url, destination_jid, destination_name, monitor_id, send_mode, sent_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(crypto.randomUUID(), productId || productUrl || crypto.randomUUID(), productTitle || null, productUrl, destination.jid, destination.name || null, monitorId || null, sendMode, sentAt).run();
+      (id, product_id, product_key, product_title, product_url, destination_jid, destination_name, monitor_id, send_mode, sent_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(crypto.randomUUID(), productId || productUrl || crypto.randomUUID(), productKey || null, productTitle || null, productUrl, destination.jid, destination.name || null, monitorId || null, sendMode, sentAt).run();
     await automationLog({ level: "success", stage: "manual_send", message: `Oferta enviada manualmente para ${destination.name || destination.jid}.`, groupJid: destination.jid, productId: productId || undefined, details: { withImage: Boolean(imageUrl), carouselCards: useCarousel ? reviewCards.length + 1 : 0, reviewMediaCards: useCarousel ? reviewCards.length : 0, providerStatus: response.status } });
     return NextResponse.json({ ok: true, destination: destination.name || destination.jid, withImage: Boolean(imageUrl), carouselCards: useCarousel ? reviewCards.length + 1 : 0, reviewMediaCards: useCarousel ? reviewCards.length : 0 });
   } catch (error) {
+    if (lockAcquired && monitorId && productKey) {
+      await env.DB.prepare("DELETE FROM offer_send_locks WHERE monitor_id = ? AND product_key = ?").bind(monitorId, productKey).run().catch(() => undefined);
+    }
     const message = error instanceof Error ? error.message : "Falha ao enviar a oferta.";
     await automationLog({ level: "error", stage: "manual_send", message, groupJid: destinationJid, productId: productId || undefined });
     return NextResponse.json({ error: message }, { status: 502 });

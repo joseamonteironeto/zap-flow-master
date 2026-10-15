@@ -235,6 +235,7 @@ type MonitorActivity = {
 };
 type SendSummary = { productId: string; productTitle?: string | null; sendCount: number; groupCount: number; lastSentAt: string };
 type SendHistoryRow = { id: string; productId: string; productTitle?: string | null; destinationJid: string; destinationName?: string | null; monitorId?: string | null; sendMode: string; sentAt: string };
+type CatalogedProduct = CatalogItem & { category: string; productCode?: string | null; currentPrice?: number | null; previousPrice?: number | null; productUrl?: string; rating?: number | null; firstSeenAt?: string; lastSeenAt?: string };
 
 const defaultOfferMonitors: OfferMonitor[] = [
   {
@@ -249,6 +250,13 @@ const defaultOfferMonitors: OfferMonitor[] = [
       { id: "smartphones-busca", url: "https://lista.mercadolivre.com.br/smartphone?sb=all_mercadolibre", weight: 50 },
       { id: "smartphones-ofertas", url: "https://lista.mercadolivre.com.br/_Container_lp-smfs-geral-26_NoIndex_True", weight: 30 },
       { id: "carregadores", url: "https://lista.mercadolivre.com.br/carregador-celular?sb=all_mercadolibre", weight: 20 },
+    ],
+  },
+  {
+    id: "casa-decoracao", name: "Casa e Decoração", kind: "urls", destinationJid: "", intervalMinutes: 5,
+    autoSend: false, minRating: 4.5, minDiscount: 20, maxPages: 10, ignoreInternational: true,
+    sources: [
+      { id: "casa-ofertas", url: "https://lista.mercadolivre.com.br/_Container_fh-lp-ofertas-dod-c1_NoIndex_True", weight: 100 },
     ],
   },
 ];
@@ -630,6 +638,13 @@ export default function Dashboard() {
   const [sendSummary, setSendSummary] = useState<SendSummary[]>([]);
   const [sendHistory, setSendHistory] = useState<SendHistoryRow[]>([]);
   const [sendHistoryLoading, setSendHistoryLoading] = useState(false);
+  const [catalogedProducts, setCatalogedProducts] = useState<CatalogedProduct[]>([]);
+  const [catalogedCategories, setCatalogedCategories] = useState<Array<{ category: string; total: number }>>([]);
+  const [catalogedSearch, setCatalogedSearch] = useState("");
+  const [catalogedCategory, setCatalogedCategory] = useState("Todas");
+  const [catalogedLoading, setCatalogedLoading] = useState(false);
+  const [catalogedSelected, setCatalogedSelected] = useState<CatalogedProduct | null>(null);
+  const [catalogedPriceHistory, setCatalogedPriceHistory] = useState<Array<{ price: number | null; originalPrice: number | null; observedAt: string }>>([]);
   const [catalogCredentials, setCatalogCredentials] = useState({ mercadoLivreConfigured: false, mercadoLivreAppConfigured: false, mercadoLivreExpiresAt: null as string | null, mercadoLivreUserId: null as string | null });
   const [mercadoLivreAccessToken, setMercadoLivreAccessToken] = useState("");
   const [mercadoLivreClientId, setMercadoLivreClientId] = useState("1038957964690859");
@@ -737,8 +752,10 @@ export default function Dashboard() {
         const parsed = JSON.parse(savedOfferMonitors) as OfferMonitor[];
         const valid = Array.isArray(parsed) ? parsed.filter((item) => item?.id && item?.name && Array.isArray(item.sources)) : [];
         if (valid.length) {
-          setOfferMonitors(valid);
-          setActiveOfferMonitorId(valid[0].id);
+          const missingDefaults = defaultOfferMonitors.filter((preset) => !valid.some((item) => item.id === preset.id));
+          const merged = [...valid, ...missingDefaults];
+          setOfferMonitors(merged);
+          setActiveOfferMonitorId(merged[0].id);
         }
       } catch {}
     }
@@ -1686,12 +1703,17 @@ export default function Dashboard() {
       setAffiliateHubLastScan(data.capturedAt || new Date().toISOString());
       setLocalCollectorConnected(true);
       if (data.changes?.newCount) toast.success(`${data.changes.newCount} nova(s) oferta(s) apareceram no Hub.`);
+      try {
+        await saveCatalogedProducts(defaultOfferMonitors[0], products);
+      } catch (catalogError) {
+        console.warn("Não foi possível atualizar Produtos Catalogados com o Hub", catalogError);
+      }
 
       if (sendAutomatically) {
         if (!affiliateHubDestination) throw new Error("Escolha o grupo que receberá as ofertas automáticas.");
         if (!whatsapp.instanceToken.trim()) throw new Error("Configure o token da UAZAPI antes de ativar o envio automático.");
         const sent = affiliateHubCooldowns();
-        const selected = products.find((offer) => !sent[offer.itemId || offer.id || offer.url || ""]);
+        const selected = randomItem(products.filter((offer) => !sent[stableOfferKey(offer)]));
         if (!selected?.url) return;
         const prepared = await generatePromotionPreview(selected.url, { silent: true });
         if (!prepared) throw new Error("A melhor oferta foi encontrada, mas não foi possível preparar a mensagem.");
@@ -1709,14 +1731,14 @@ export default function Dashboard() {
             videoUrl: firstMedia.type === "video" ? firstMedia.url : undefined,
           }];
         }).slice(0, 4) : [];
+        const key = stableOfferKey(selected);
         const sendResponse = await fetch("/api/offers/send", {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Promozap-Admin-Token": whatsapp.instanceToken.trim() },
-          body: JSON.stringify({ destinationJid: affiliateHubDestination, text: prepared.message, imageUrl: prepared.item.imageUrl, includeImage: Boolean(prepared.item.imageUrl), reviewCards, carouselEnabled, carouselButtonLabel: carouselButtonLabel.trim() || "VER OFERTA", productUrl: prepared.item.url, productId: prepared.item.itemId || prepared.item.id, productTitle: prepared.item.title, monitorId: "geral-hub" }),
+          body: JSON.stringify({ destinationJid: affiliateHubDestination, text: prepared.message, imageUrl: prepared.item.imageUrl, includeImage: Boolean(prepared.item.imageUrl), reviewCards, carouselEnabled, carouselButtonLabel: carouselButtonLabel.trim() || "VER OFERTA", productUrl: prepared.item.url, productId: prepared.item.itemId || prepared.item.id, productKey: key, productTitle: prepared.item.title, monitorId: "geral-hub" }),
         });
         const sendResult = await sendResponse.json() as { error?: string };
         if (!sendResponse.ok) throw new Error(sendResult.error || "A UAZAPI recusou o envio automático.");
-        const key = selected.itemId || selected.id || selected.url;
         const nextSent = { ...sent, [key]: new Date().toISOString() };
         window.localStorage.setItem("promozap.affiliateHub.sent.v1", JSON.stringify(nextSent));
         setAffiliateHubSentRevision((value) => value + 1);
@@ -1780,6 +1802,62 @@ export default function Dashboard() {
       if (cursor <= 0) return source;
     }
     return valid.at(-1) || null;
+  }
+
+  function stableOfferKey(offer: AffiliateHubOffer | CatalogItem) {
+    const url = String(offer.url || "");
+    const catalogCode = url.match(/\/(?:p|up)\/(MLBU?\d{7,})(?:[/?#]|$)/i)?.[1]?.toUpperCase();
+    if (catalogCode) return `catalog:${catalogCode}`;
+    const directCode = String(offer.itemId || offer.id || "").toUpperCase().match(/\bMLBU?-?\d{7,}\b/)?.[0];
+    if (directCode) return `item:${directCode.replace("MLB-", "MLB")}`;
+    const normalizedTitle = String(offer.title || "produto").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .toLocaleLowerCase("pt-BR").replace(/[^a-z0-9]+/g, " ").trim().replace(/\b(preto|branco|azul|verde|vermelho|cinza|prata|dourado)\b/g, "").replace(/\s+/g, " ");
+    return `title:${normalizedTitle.slice(0, 140)}`;
+  }
+
+  function randomItem<T>(values: T[]) {
+    if (!values.length) return null;
+    const buffer = new Uint32Array(1);
+    crypto.getRandomValues(buffer);
+    return values[buffer[0] % values.length];
+  }
+
+  async function saveCatalogedProducts(monitor: OfferMonitor, products: AffiliateHubOffer[]) {
+    if (!products.length || !whatsapp.instanceToken.trim()) return;
+    const response = await fetch("/api/catalog/products", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Promozap-Admin-Token": whatsapp.instanceToken.trim() },
+      body: JSON.stringify({ category: monitor.name, products }),
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({})) as { error?: string };
+      throw new Error(result.error || "Não foi possível salvar os produtos no catálogo.");
+    }
+  }
+
+  async function loadCatalogedProducts() {
+    setCatalogedLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (catalogedSearch.trim()) params.set("search", catalogedSearch.trim());
+      if (catalogedCategory !== "Todas") params.set("category", catalogedCategory);
+      const response = await fetch(`/api/catalog/products?${params.toString()}`, { cache: "no-store" });
+      const data = await response.json() as { products?: CatalogedProduct[]; categories?: Array<{ category: string; total: number }>; error?: string };
+      if (!response.ok) throw new Error(data.error || "Não foi possível carregar o catálogo.");
+      setCatalogedProducts((data.products || []).map((item) => ({ ...item, price: item.currentPrice ?? item.price })));
+      setCatalogedCategories(data.categories || []);
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "Não foi possível carregar o catálogo.");
+    } finally { setCatalogedLoading(false); }
+  }
+
+  async function openCatalogedProduct(item: CatalogedProduct) {
+    setCatalogedSelected(item);
+    setCatalogedPriceHistory([]);
+    const response = await fetch(`/api/catalog/products?id=${encodeURIComponent(item.id)}`, { cache: "no-store" });
+    const data = await response.json() as { product?: CatalogedProduct; history?: Array<{ price: number | null; originalPrice: number | null; observedAt: string }> };
+    if (data.product) setCatalogedSelected({ ...data.product, price: data.product.currentPrice ?? data.product.price });
+    setCatalogedPriceHistory(data.history || []);
   }
 
   function monitorCooldowns(monitorId: string) {
@@ -1857,11 +1935,18 @@ export default function Dashboard() {
       });
       const data = await response.json() as { ok?: boolean; products?: AffiliateHubOffer[]; capturedAt?: string; error?: string };
       if (!response.ok || !data.ok) throw new Error(data.error || "O coletor não conseguiu concluir esta operação.");
-      const products = (data.products || []).filter((offer) => {
+      const extractedProducts = data.products || [];
+      const products = extractedProducts.filter((offer) => {
         const discount = offer.discountPercentage || 0;
         const rating = offer.rating || 0;
         return discount >= monitor.minDiscount && rating >= monitor.minRating && (!monitor.ignoreInternational || !offer.isInternational);
       });
+      try {
+        await saveCatalogedProducts(monitor, extractedProducts);
+        addMonitorActivity(monitorId, "success", `${monitor.name}: ${extractedProducts.length} produto(s) atualizado(s) em Produtos Catalogados.`);
+      } catch (catalogError) {
+        addMonitorActivity(monitorId, "warning", `${monitor.name}: ${catalogError instanceof Error ? catalogError.message : "falha ao atualizar o catálogo"}`);
+      }
       setMonitorRuntimes((current) => ({ ...current, [monitorId]: { offers: products, loading: false, error: "", lastScan: data.capturedAt || new Date().toISOString(), selectedSource: selectedSource.url } }));
       setLocalCollectorConnected(true);
       addMonitorActivity(monitorId, products.length ? "success" : "warning", `${monitor.name}: ${products.length} oferta(s) aprovada(s) pelos filtros.`);
@@ -1870,11 +1955,13 @@ export default function Dashboard() {
       if (sendAutomatically) {
         if (!whatsapp.instanceToken.trim()) throw new Error("Configure o token da UAZAPI antes de ativar o envio automático.");
         const sent = monitorCooldowns(monitorId);
-        const selected = products.find((offer) => !sent[offer.itemId || offer.id || offer.url || ""]);
+        const eligible = products.filter((offer) => !sent[stableOfferKey(offer)]);
+        const selected = randomItem(eligible);
         if (!selected?.url) {
           addMonitorActivity(monitorId, "warning", `${monitor.name}: nenhuma oferta elegível fora do cooldown de 24 horas.`);
           return;
         }
+        const key = stableOfferKey(selected);
         addMonitorActivity(monitorId, "info", `${monitor.name}: preparando “${selected.title}” em segundo plano.`);
         const prepared = await generatePromotionPreview(selected.url, { silent: true, background: true });
         if (!prepared) throw new Error("A oferta passou pelos filtros, mas a mensagem não pôde ser preparada.");
@@ -1888,11 +1975,13 @@ export default function Dashboard() {
         }).slice(0, 4) : [];
         const sendResponse = await fetch("/api/offers/send", {
           method: "POST", headers: { "Content-Type": "application/json", "X-Promozap-Admin-Token": whatsapp.instanceToken.trim() },
-          body: JSON.stringify({ destinationJid: monitor.destinationJid, text: prepared.message, imageUrl: prepared.item.imageUrl, includeImage: Boolean(prepared.item.imageUrl), reviewCards, carouselEnabled, carouselButtonLabel: carouselButtonLabel.trim() || "VER OFERTA", productUrl: prepared.item.url, productId: prepared.item.itemId || prepared.item.id, productTitle: prepared.item.title, monitorId }),
+          body: JSON.stringify({ destinationJid: monitor.destinationJid, text: prepared.message, imageUrl: prepared.item.imageUrl, includeImage: Boolean(prepared.item.imageUrl), reviewCards, carouselEnabled, carouselButtonLabel: carouselButtonLabel.trim() || "VER OFERTA", productUrl: prepared.item.url, productId: prepared.item.itemId || prepared.item.id, productKey: key, productTitle: prepared.item.title, monitorId }),
         });
         const sendResult = await sendResponse.json() as { error?: string };
-        if (!sendResponse.ok) throw new Error(sendResult.error || "A UAZAPI recusou o envio automático.");
-        const key = selected.itemId || selected.id || selected.url;
+        if (!sendResponse.ok) {
+          if (sendResponse.status === 409) window.localStorage.setItem(`promozap.monitor.sent.${monitorId}`, JSON.stringify({ ...sent, [key]: new Date().toISOString() }));
+          throw new Error(sendResult.error || "A UAZAPI recusou o envio automático.");
+        }
         window.localStorage.setItem(`promozap.monitor.sent.${monitorId}`, JSON.stringify({ ...sent, [key]: new Date().toISOString() }));
         if (prepared.record.id) await fetch("/api/products", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: prepared.record.id, status: "sent", destinationGroup: monitor.destinationJid }) }).catch(() => undefined);
         toast.success(`${monitor.name}: oferta enviada para o grupo configurado.`);
@@ -2024,11 +2113,15 @@ export default function Dashboard() {
   }, [activeTab]);
 
   useEffect(() => {
-    if (activeTab === "discovery" || activeTab === "monitoring" || activeTab === "ml-api") {
+    if (activeTab === "discovery" || activeTab === "ml-api") {
       void loadCatalogCredentialStatus();
       if (!mercadoLivreCategories.length) void loadMercadoLivreCategories();
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === "monitoring") void loadCatalogedProducts();
+  }, [activeTab, catalogedCategory]);
 
   useEffect(() => {
     if (!monitoringActive) return;
@@ -2123,7 +2216,7 @@ export default function Dashboard() {
     catalog: ["Dados dos produtos", "Veja tudo o que foi extraído das ofertas enviadas do Mercado Livre."],
     discovery: ["Consultar produtos", "Pesquise recomendações, preços e filtros nos catálogos oficiais."],
     "ml-api": ["Consulta API Mercado Livre", "Consulte um anúncio pelo ID e inspecione todos os campos autorizados pela API oficial."],
-    monitoring: ["Radar de ofertas", "Monitore novas ofertas do dia e destaque quedas de preço relevantes."],
+    monitoring: ["Produtos Catalogados", "Consulte os produtos encontrados, seus dados e o histórico de preços observado."],
     templates: ["Layout das mensagens", "Monte o texto das ofertas com variáveis preenchidas automaticamente."],
     credentials: ["Credenciais", "Centralize as integrações da UAZAPI, afiliados, APIs e coletor local."],
     logs: ["Logs", "Acompanhe os eventos e diagnósticos da operação."],
@@ -2148,7 +2241,7 @@ export default function Dashboard() {
                 ["catalog", "Dados dos produtos", Database],
                 ["discovery", "Consultar produtos", Search],
                 ["ml-api", "Consulta API ML", Database],
-                ["monitoring", "Radar de ofertas", Radar],
+                ["monitoring", "Produtos Catalogados", ShoppingBag],
                 ["templates", "Layout das mensagens", LayoutTemplate],
                 ["logs", "Logs", ScrollText],
                 ["credentials", "Credenciais", KeyRound],
@@ -2206,7 +2299,7 @@ export default function Dashboard() {
               <TabsTrigger value="catalog" className="h-10 min-w-40 rounded-lg px-4">Dados dos produtos</TabsTrigger>
               <TabsTrigger value="discovery" className="h-10 min-w-40 rounded-lg px-4">Consultar produtos</TabsTrigger>
               <TabsTrigger value="ml-api" className="h-10 min-w-40 rounded-lg px-4">Consulta API ML</TabsTrigger>
-              <TabsTrigger value="monitoring" className="h-10 min-w-36 rounded-lg px-4">Radar ao vivo</TabsTrigger>
+              <TabsTrigger value="monitoring" className="h-10 min-w-36 rounded-lg px-4">Produtos Catalogados</TabsTrigger>
               <TabsTrigger value="templates" className="h-10 min-w-40 rounded-lg px-4">Layout das mensagens</TabsTrigger>
               <TabsTrigger value="logs" className="h-10 min-w-28 rounded-lg px-4">Logs</TabsTrigger>
               <TabsTrigger value="credentials" className="h-10 min-w-36 rounded-lg px-4">Credenciais</TabsTrigger>
@@ -2693,6 +2786,17 @@ export default function Dashboard() {
 
             <TabsContent value="monitoring" id="radar-de-ofertas">
               <div className="space-y-5 rounded-3xl bg-[#f4f6f8] p-4 text-[#243447] sm:p-6">
+                <section className="rounded-2xl border border-[#dfe5eb] bg-white p-5 shadow-[0_8px_30px_rgba(31,54,76,.08)] sm:p-6">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"><div><div className="mb-2 flex items-center gap-2 text-sm font-extrabold text-[#138244]"><ShoppingBag className="size-5" /> CATÁLOGO PERSISTENTE</div><h2 className="text-2xl font-black text-[#1b2b3a]">Produtos encontrados pelos monitoramentos</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-[#667788]">Cada leitura salva nome, imagem, categoria, preço, preço anterior, desconto, frete e avaliação. Novos preços alimentam o histórico do produto.</p></div><Button onClick={() => void loadCatalogedProducts()} disabled={catalogedLoading} className="bg-[#138244] font-extrabold text-white hover:bg-[#0f6f38]">{catalogedLoading ? <LoaderCircle className="animate-spin" /> : <RefreshCw />} Atualizar catálogo</Button></div>
+                  <div className="mt-5 grid gap-3 md:grid-cols-[minmax(0,1fr)_260px]"><div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#82909a]" /><Input value={catalogedSearch} onChange={(event) => setCatalogedSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void loadCatalogedProducts(); }} placeholder="Buscar por nome ou código MLB" className="h-11 border-[#d8e0e6] bg-white pl-10 text-[#253545]" /></div><NativeSelect value={catalogedCategory} onChange={(event) => setCatalogedCategory(event.target.value)} className="h-11 border-[#d8e0e6] bg-white text-[#253545]"><NativeSelectOption value="Todas">Todas as categorias</NativeSelectOption>{catalogedCategories.map((item) => <NativeSelectOption key={item.category} value={item.category}>{item.category} ({Number(item.total)})</NativeSelectOption>)}</NativeSelect></div>
+                </section>
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{catalogedProducts.map((item) => <button key={item.id} type="button" onClick={() => void openCatalogedProduct(item)} className="group overflow-hidden rounded-2xl border border-[#dce3e8] bg-white text-left shadow-[0_6px_22px_rgba(31,54,76,.07)] transition hover:-translate-y-1 hover:border-[#8fc5aa] hover:shadow-[0_14px_32px_rgba(31,54,76,.14)]"><div className="relative aspect-[4/3] bg-white p-4">{item.imageUrl ? <img src={item.imageUrl} alt={item.title} loading="lazy" className="h-full w-full object-contain transition group-hover:scale-[1.025]" /> : <div className="grid h-full place-items-center"><ShoppingBag className="size-10 text-[#9ba8b3]" /></div>}<span className="absolute left-3 top-3 rounded-full bg-[#173a28] px-3 py-1 text-[11px] font-black text-[#8df3aa]">{item.category}</span></div><div className="space-y-3 border-t border-[#edf1f4] p-4"><h3 className="line-clamp-3 min-h-[3.75rem] text-sm font-bold leading-5 text-[#263746]">{item.title}</h3><div>{item.originalPrice && item.originalPrice > (item.currentPrice || 0) ? <p className="text-xs text-[#8b98a3] line-through">{formatMoney(item.originalPrice)}</p> : null}<p className="text-2xl font-black text-[#138244]">{formatMoney(item.currentPrice)}</p></div><div className="flex flex-wrap gap-1.5">{item.discountPercentage ? <Badge className="bg-[#ffe04b] text-[#251f00]">-{item.discountPercentage}%</Badge> : null}{item.rating ? <Badge className="bg-[#e8f2fb] text-[#17689f]">★ {item.rating}</Badge> : null}{item.freeShipping ? <Badge className="bg-[#e8f8ef] text-[#138244]">Frete grátis</Badge> : null}</div><p className="text-xs font-extrabold text-[#087bd3]">Ver dados, histórico e enviar →</p></div></button>)}</div>
+                {!catalogedProducts.length && <div className="rounded-2xl border border-dashed border-[#cbd5dc] bg-white p-12 text-center"><ShoppingBag className="mx-auto mb-3 size-10 text-[#97a8b5]" /><p className="font-bold">O catálogo ainda está vazio</p><p className="mt-1 text-sm text-[#71808d]">Na próxima pesquisa de cada operação, os produtos encontrados serão salvos aqui automaticamente.</p></div>}
+              </div>
+              <Dialog open={Boolean(catalogedSelected)} onOpenChange={(open) => { if (!open) setCatalogedSelected(null); }}>
+                <DialogContent className="promozap-light max-h-[92vh] overflow-y-auto border-[#d7e1da] bg-white text-[#17221b] sm:max-w-4xl">{catalogedSelected ? <><DialogHeader><DialogTitle className="pr-8 text-xl">{catalogedSelected.title}</DialogTitle><DialogDescription>{catalogedSelected.category} · {catalogedSelected.productCode || catalogedSelected.id}</DialogDescription></DialogHeader><div className="grid gap-5 md:grid-cols-[280px_minmax(0,1fr)]"><div className="rounded-2xl border border-[#dce4e9] bg-white p-4">{catalogedSelected.imageUrl ? <img src={catalogedSelected.imageUrl} alt={catalogedSelected.title} className="aspect-square w-full object-contain" /> : <ShoppingBag className="mx-auto size-16 text-[#9ba8b3]" />}</div><div className="space-y-4"><div className="flex flex-wrap items-end gap-3">{catalogedSelected.originalPrice && catalogedSelected.originalPrice > (catalogedSelected.currentPrice || 0) ? <span className="text-sm text-[#8b98a3] line-through">{formatMoney(catalogedSelected.originalPrice)}</span> : null}<span className="text-4xl font-black text-[#138244]">{formatMoney(catalogedSelected.currentPrice)}</span>{catalogedSelected.discountPercentage ? <Badge className="bg-[#ffe04b] text-[#251f00]">-{catalogedSelected.discountPercentage}%</Badge> : null}</div><div className="grid grid-cols-2 gap-2 text-sm">{[["Avaliação", catalogedSelected.rating ? `★ ${catalogedSelected.rating}` : "—"],["Frete", catalogedSelected.freeShipping ? "Grátis" : "Não informado"],["Primeira leitura", catalogedSelected.firstSeenAt ? new Date(catalogedSelected.firstSeenAt).toLocaleString("pt-BR") : "—"],["Última leitura", catalogedSelected.lastSeenAt ? new Date(catalogedSelected.lastSeenAt).toLocaleString("pt-BR") : "—"]].map(([label,value]) => <div key={label} className="rounded-xl border border-[#dce4e9] bg-[#f8fafb] p-3"><p className="text-xs text-[#71808d]">{label}</p><p className="mt-1 font-bold">{value}</p></div>)}</div><div><p className="mb-2 text-sm font-black">Histórico de preços observado</p><div className="max-h-44 space-y-2 overflow-y-auto rounded-xl border border-[#dce4e9] bg-[#f8fafb] p-3">{catalogedPriceHistory.length ? catalogedPriceHistory.map((point, index) => <div key={`${point.observedAt}-${index}`} className="flex items-center justify-between gap-3 text-xs"><span className="text-[#71808d]">{new Date(point.observedAt).toLocaleString("pt-BR")}</span><span className="font-black text-[#138244]">{formatMoney(point.price)}</span></div>) : <p className="text-xs text-[#71808d]">O primeiro preço foi salvo. Novas alterações aparecerão aqui.</p>}</div></div><Button onClick={() => { const url = catalogedSelected.productUrl || catalogedSelected.url || ""; setCatalogedSelected(null); setActiveTab("generate"); void generatePromotionPreview(url); }} className="w-full bg-[#24c75a] font-extrabold text-[#04140a] hover:bg-[#46df75]"><Send /> Preparar e escolher grupo</Button></div></div></> : null}</DialogContent>
+              </Dialog>
+              {false && <div className="space-y-5 rounded-3xl bg-[#f4f6f8] p-4 text-[#243447] sm:p-6">
                 <section className="overflow-hidden rounded-2xl border border-[#dfe5eb] bg-white shadow-[0_8px_30px_rgba(31,54,76,.08)]">
                   <div className="border-b border-[#e8edf1] bg-[linear-gradient(110deg,#eef8ff,#fff_58%)] p-5 sm:p-6">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><div className="mb-2 flex items-center gap-2 text-sm font-extrabold text-[#0874c9]"><Radar className="size-5" /> MONITORAMENTO EM TEMPO QUASE REAL</div><h2 className="text-2xl font-black text-[#1b2b3a]">Novas ofertas do dia</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-[#667788]">O coletor abre a vitrine pública do Mercado Livre em intervalos regulares, compara IDs já vistos e destaca somente novidades que atendem aos seus filtros.</p></div><div className={`rounded-full px-4 py-2 text-sm font-bold ${monitoringActive ? "bg-[#e8f8ef] text-[#138244]" : "bg-[#edf1f4] text-[#687785]"}`}>{monitoringActive ? "● Radar ativo" : "○ Radar pausado"}</div></div>
@@ -2709,7 +2813,7 @@ export default function Dashboard() {
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{monitoringDeals.map((item) => <button key={item.id} type="button" onClick={() => openMonitoredDeal(item)} className="group overflow-hidden rounded-2xl border border-[#dce3e8] bg-white text-left shadow-[0_6px_22px_rgba(31,54,76,.07)] transition hover:-translate-y-1 hover:border-[#8fc5ea] hover:shadow-[0_14px_32px_rgba(31,54,76,.14)]"><div className="relative aspect-[4/3] bg-white p-4">{item.imageUrl ? <img src={item.imageUrl} alt={item.title} className="h-full w-full object-contain transition group-hover:scale-[1.025]" /> : <div className="grid h-full place-items-center"><ShoppingBag className="size-10 text-[#9ba8b3]" /></div>}<div className="absolute left-3 top-3 rounded-full bg-[#12a55c] px-3 py-1 text-xs font-black text-white">{item.discountPercentage ? `-${item.discountPercentage}%` : `${item.dealScore || 0} pts`}</div></div><div className="space-y-3 border-t border-[#edf1f4] p-4"><h4 className="line-clamp-3 min-h-[3.75rem] text-sm font-bold leading-5 text-[#263746]">{item.title}</h4><div>{item.originalPrice && item.originalPrice > (item.price || 0) ? <p className="text-xs text-[#8b98a3] line-through">{formatMoney(item.originalPrice)}</p> : null}<p className="text-2xl font-black text-[#087bd3]">{formatMoney(item.price)}</p></div><div className="flex flex-wrap gap-1.5">{item.scoreReasons?.slice(0, 2).map((reason) => <span key={reason} className="rounded-md bg-[#eef2f5] px-2 py-1 text-[11px] text-[#617180]">{reason}</span>)}</div><p className="text-xs font-extrabold text-[#087bd3]">Ver oferta e enviar →</p></div></button>)}</div>
                 {!monitoringDeals.length && <div className="rounded-2xl border border-dashed border-[#cbd5dc] bg-white p-12 text-center"><Radar className="mx-auto mb-3 size-10 text-[#97a8b5]" /><p className="font-bold">Nenhuma leitura feita ainda</p><p className="mt-1 text-sm text-[#71808d]">Ligue o coletor local e clique em “Iniciar radar”.</p></div>}
                 <p className="rounded-xl border border-[#dbe6ee] bg-[#eef7fd] p-4 text-xs leading-5 text-[#4f6575]"><strong>Limite técnico:</strong> isto é uma varredura periódica, não um webhook do Mercado Livre. Ela funciona enquanto o coletor e esta página estiverem abertos. Intervalos muito curtos podem acionar validações do marketplace; 2 a 5 minutos é o uso mais seguro.</p>
-              </div>
+              </div>}
             </TabsContent>
 
             <TabsContent value="templates" id="layout-das-mensagens">

@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const groupConfigs = sqliteTable("group_configs", {
   jid: text("jid").primaryKey(),
@@ -68,6 +68,7 @@ export const automationLogs = sqliteTable("automation_logs", {
 export const offerSends = sqliteTable("offer_sends", {
   id: text("id").primaryKey(),
   productId: text("product_id").notNull(),
+  productKey: text("product_key"),
   productTitle: text("product_title"),
   productUrl: text("product_url"),
   destinationJid: text("destination_jid").notNull(),
@@ -75,4 +76,40 @@ export const offerSends = sqliteTable("offer_sends", {
   monitorId: text("monitor_id"),
   sendMode: text("send_mode").notNull().default("manual"),
   sentAt: text("sent_at").notNull(),
+});
+
+export const catalogProducts = sqliteTable("catalog_products", {
+  id: text("id").primaryKey(),
+  store: text("store").notNull().default("mercadolivre"),
+  category: text("category").notNull().default("Geral"),
+  productCode: text("product_code"),
+  title: text("title").notNull(),
+  imageUrl: text("image_url"),
+  productUrl: text("product_url").notNull(),
+  currentPrice: real("current_price"),
+  previousPrice: real("previous_price"),
+  originalPrice: real("original_price"),
+  discountPercentage: integer("discount_percentage").notNull().default(0),
+  freeShipping: integer("free_shipping", { mode: "boolean" }).notNull().default(false),
+  rating: real("rating"),
+  soldText: text("sold_text"),
+  payloadJson: text("payload_json"),
+  firstSeenAt: text("first_seen_at").notNull(),
+  lastSeenAt: text("last_seen_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const catalogPriceHistory = sqliteTable("catalog_price_history", {
+  id: text("id").primaryKey(),
+  productId: text("product_id").notNull(),
+  price: real("price"),
+  originalPrice: real("original_price"),
+  observedAt: text("observed_at").notNull(),
+});
+
+export const offerSendLocks = sqliteTable("offer_send_locks", {
+  monitorId: text("monitor_id").notNull(),
+  productKey: text("product_key").notNull(),
+  lockedAt: text("locked_at").notNull(),
+  expiresAt: text("expires_at").notNull(),
 });
